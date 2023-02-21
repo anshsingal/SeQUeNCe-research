@@ -1,0 +1,33 @@
+{
+    "nodes": [
+        {
+            "name": "0",
+            "type": "QuantumRouter",
+            "memo_size": 25
+        },
+        {
+            "name": "1",
+            "type": "QuantumRouter",
+            "memo_size": 25
+        }
+    ],
+    "qconnections": [
+        {
+            "node1": "0",
+            "node2": "1",
+            "attenuation": 1e-05,
+            "distance": 50
+        }
+    ],
+    "cchannels_table": {
+        "type": "RT",
+        "labels": [
+            "0",
+            "1"
+        ],
+        "table": [
+            [0, 1000000000.0],
+            [1000000000.0, 0]
+        ]
+    }
+}
