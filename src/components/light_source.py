@@ -185,8 +185,8 @@ class SPDCSource(LightSource):
 
 
 class ParametricSource(Entity):
-    def __init__(self, own, name, timeline, signal_receiver=None, idler_receiver=None, wavelength=1550,
-                 mean_photon_num=1, distinguishable = True, mode_width = 50):
+    def __init__(self, own, name, timeline, signal_receiver, idler_receiver, wavelength,
+                 mean_photon_num, distinguishable, pulse_separation, pulse_width = 50):
         Entity.__init__(self, name, timeline)
         self.own = own
         self.wavelength = wavelength
@@ -194,7 +194,9 @@ class ParametricSource(Entity):
         self.signal_receiver = signal_receiver
         self.idler_receiver = idler_receiver
         self.distinguishable = distinguishable 
-        self.mode_width = mode_width # width of individual temporal mode in ps
+        self.pulse_width = pulse_width # width of individual temporal mode in ps
+        self.pulse_separation = pulse_separation
+        self.transmit_time = self.own.timeline.now()
         # self.wavelengths = wavelengths
 
     def init(self):
@@ -211,30 +213,43 @@ class ParametricSource(Entity):
             state_list (List[List[complex]]): list of complex coefficient arrays to send as photon-encoded qubits.
         """
 
-        if self.distinguishable == True:
-            num_photon_pairs = self.get_generator().poisson(self.mean_photon_num)
+        # if self.distinguishable == True:
+        #     num_photon_pairs = self.get_generator().poisson(self.mean_photon_num)
         # else:
             # << Implement Thermal distribution. >> 
         # signal_pulse = [0]*num_photon_pairs
         # idler_pulse = [0]*num_photon_pairs
         
-        transmit_time = self.own.timeline.now()
+        num_photon_pairs = np.random.poisson(lam = self.mean_photon_num)
+        if num_photon_pairs == 0:
+            self.transmit_time = max(self.transmit_time, self.timeline.now()) + self.pulse_separation + self.pulse_width
+            # print("No photons emitted")
+            return
+        last_arrival = self.pulse_width + 1
+        while last_arrival > self.pulse_width and last_arrival <= 0:
+            last_arrival = np.random.gamma(shape = num_photon_pairs, scale = 1/self.mean_photon_num)
+        # print("last_arrival:", last_arrival)
+
+        arrival_times = np.append(np.random.randint(0, last_arrival, num_photon_pairs-1), [int(last_arrival)]) 
+
+        
+        # print("Light source emission time:", arrival_times)
 
         signal_emit_time = None
         idler_emit_time = None
 
-        for i in range(num_photon_pairs):
+        for pulse_position in arrival_times:
             state = np.around(np.random.rand())
             new_photon0 = Photon(None, wavelength=self.wavelength, quantum_state=(complex(state), complex(1-state)))
             new_photon1 = Photon(None, wavelength=self.wavelength, quantum_state=(complex(state), complex(1-state)))
 
-            tansmit_time = transmit_time + 50 + (np.random.rand()*50)
+            self.transmit_time = max(self.transmit_time, self.timeline.now()) + self.pulse_separation + pulse_position
 
             signal_photon = new_photon0
             idler_photon = new_photon1
 
-            signal_emit_time = self.own.schedule_qubit(self.signal_receiver, transmit_time)
-            idler_emit_time = self.own.schedule_qubit(self.idler_receiver, transmit_time)
+            signal_emit_time = self.own.schedule_qubit(self.signal_receiver, self.transmit_time)
+            idler_emit_time = self.own.schedule_qubit(self.idler_receiver, self.transmit_time)
 
             assert signal_emit_time == idler_emit_time
 

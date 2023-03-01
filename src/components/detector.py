@@ -26,12 +26,12 @@ from ..utils.encoding import time_bin
 class PulseDetector(Entity):
     """Pulse detector device."""
 
-    def __init__(self, own, name: str, timeline: "Timeline", collection_probability=0.2, dark_count=1e8, dead_time=1e3,
+    def __init__(self, own, name: str, timeline: "Timeline", collection_probability=0.2, dark_count_rate=100, dead_time=1e3,
                  time_resolution=150):
         Entity.__init__(self, name+"_detector", timeline)  # Detector is part of the QSDetector, and does not have its own name
         self.own = own
         self.collection_probability = collection_probability
-        self.dark_count = dark_count  # measured in 1/s
+        self.dark_count_rate = dark_count_rate  # measured in 1/s
         self.dead_time = dead_time  # measured in Hz
         self.time_resolution = time_resolution  # measured in ps
         self.next_detection_time = -1
@@ -57,7 +57,7 @@ class PulseDetector(Entity):
 
         # if pulse:
         #     print(f"detector get time: {now}")
-
+        # print("detection recieved, pulse:", type(pulse), "at time", now)
         time = round(now / self.time_resolution) * self.time_resolution
         if now > self.next_detection_time:
             if pulse == None: # Dark count
@@ -83,9 +83,9 @@ class PulseDetector(Entity):
             May schedule future calls to self.
         """
 
-        if self.dark_count > 0:
+        if self.dark_count_rate > 0:
             time_to_next = int(self.get_generator().exponential(
-                1 / self.dark_count) * 1e12)  # time to next dark count
+                1 / self.dark_count_rate) * 1e12)  # time to next dark count
             time = time_to_next + self.timeline.now()  # time of next dark count
 
             process1 = Process(self, "add_dark_count", [])  # schedule photon detection and dark count add in future
