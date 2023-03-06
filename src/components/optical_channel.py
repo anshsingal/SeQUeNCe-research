@@ -13,8 +13,9 @@ if TYPE_CHECKING:
     from ..kernel.timeline import Timeline
     from ..topology.node import Node
     from ..components.photon import Photon
+    from ..components.pulse_train import PulseTrain
     from ..message import Message
-
+from .photon import Photon
 from ..kernel.entity import Entity
 from ..kernel.event import Event
 from ..kernel.process import Process
@@ -103,6 +104,8 @@ class QuantumChannel(OpticalChannel):
         self.loss = 1
         self.max_rate = max_rate  # maximum rate for sending qubits (measured in Hz)
         self.send_bins = []
+        self.earliest_available_time = 0
+        self.record_raman_photons_start = None
 
     def init(self) -> None:
         """Implementation of Entity interface (see base class)."""
@@ -124,6 +127,12 @@ class QuantumChannel(OpticalChannel):
         sender.assign_qchannel(self, receiver)
 
     def start_clock(self, clock_power, narrow_band_filter_bandwidth):
+        self.record_raman_photons_start = self.timeline.now()
+        self.clock_power = clock_power
+        self.narrow_band_filter_bandwidth = narrow_band_filter_bandwidth
+
+
+    def add_raman_photons(self, train_duration):
 
         print("clock_started")
 
@@ -134,31 +143,121 @@ class QuantumChannel(OpticalChannel):
         h = 6.62607015 * 10**(-28)
         c = 3 * 10**8
 
-        calculation_window = 1/1000 # amount of time that one call of start clock caters to. Units in seconds. Not taking entire second since
+        # calculation_window = 1/1000 # amount of time that one call of start clock caters to. Units in seconds. Not taking entire second since
                                     # no. of photons per second is extremey high. 
 
-        raman_power = np.abs(clock_power * self.raman_coefficient * narrow_band_filter_bandwidth * (np.exp(-self.attenuation * self.distance) - np.exp(-self.classical_channel_attenuation * self.distance)) / (self.attenuation - self.classical_channel_attenuation))
-        raman_power *= calculation_window
-        num_photons_added = int(raman_power / (h * c / self.quantum_channel_wavelength))
+        raman_power = np.abs(self.clock_power * self.raman_coefficient * self.narrow_band_filter_bandwidth * (np.exp(-self.attenuation * self.distance) - np.exp(-self.classical_channel_attenuation * self.distance)) / (self.attenuation - self.classical_channel_attenuation))
+        raman_energy = raman_power * train_duration/1e12
+        num_photons_added = int(raman_energy / (h * c / self.quantum_channel_wavelength))
         print(num_photons_added)
-        raman_photon_distance_offset = np.floor((self.distance * np.random.rand(num_photons_added) / (3 * 10**5)) * 1e12)
-        raman_photon_time_offset = np.floor(1e12 * calculation_window * np.random.rand(num_photons_added))
-        raman_photon_arrival_times = self.timeline.now() + raman_photon_distance_offset + raman_photon_time_offset
-        
-        # for i in raman_photon_arrival_times[:1000]:
-        #     print("Raman time offset:", i)
-        # print("Raman photon time offset:", raman_photon_time_offset)
-        for i in raman_photon_arrival_times:
-            process = Process(self.receiver, "receive_qubit", [self.sender.name, None])
-            event = Event(i, process)
-            self.timeline.schedule(event)
 
-        process = Process(self, "start_clock", [clock_power, narrow_band_filter_bandwidth])
-        event = Event(self.timeline.now() + 1e12*calculation_window, process)
-        self.timeline.schedule(event)
+
+        cur_max = train_duration
+        n = num_photons_added
+        photon_generation_times = [0]*(n)                         #generate an array x of size n
+
+        for i in range(n,0,-1):
+            cur_max = cur_max*np.random.rand()**(1/i) #the magic formula
+            photon_generation_times[i-1] = cur_max
+
+        return PulseTrain(photon_generation_times, train_duration, self.quantum_channel_wavelength)
+
+
+
+        # raman_photon_distance_offset = np.floor((self.distance * np.random.rand(num_photons_added) / (3 * 10**5)) * 1e12)
+        # raman_photon_time_offset = np.floor(window_size * np.random.rand(num_photons_added))
+        
+        
+
+        # for i in raman_photon_arrival_times:
+        #     state = np.around(np.random.rand())
+        #     new_photon0 = Photon(None, wavelength=self.quantum_channel_wavelength, quantum_state=(complex(state), complex(1-state)))
+        #     process = Process(self.receiver, "receive_qubit", [self.sender.name, new_photon0])
+        #     event = Event(i, process)
+        #     self.timeline.schedule(event)
+
+        # process = Process(self, "start_clock", [clock_power, narrow_band_filter_bandwidth])
+        # event = Event(self.timeline.now() + 1e12*calculation_window, process)
+        # self.timeline.schedule(event)
             
 
-    def transmit(self, qubit, source: "Node") -> None:
+    # def transmit(self, qubit, source: "Node") -> None:
+    #     """Method to transmit photon-encoded qubits.
+
+    #     Args:
+    #         qubit (Photon): photon to be transmitted.
+    #         source (Node): source node sending the qubit.
+
+    #     Side Effects:
+    #         Receiver node may receive the qubit (via the `receive_qubit` method).
+    #     """
+
+    #     assert self.delay != 0 and self.loss != 1, "QuantumChannel init() function has not been run for {}".format(self.name)
+    #     assert source == self.sender
+
+    #     # print("Photon being transmitted over fiber")
+
+    #     # remove lowest time bin
+    #     if len(self.send_bins) > 0:
+    #         time = -1
+    #         while time < self.timeline.now():
+    #             time_bin = hq.heappop(self.send_bins)
+    #             time = int(time_bin * (1e12 / self.max_rate))
+    #         assert time == self.timeline.now(), "qc {} transmit method called at invalid time".format(self.name)
+
+    #     # check if photon kept
+    #     if (self.sender.get_generator().random() > self.loss) or qubit.is_null:
+    #         # check if polarization encoding and apply necessary noise
+    #         if (qubit.encoding_type["name"] == "polarization") and (
+    #                 self.sender.get_generator().random() > self.polarization_fidelity):
+    #             qubit.random_noise(self.get_generator())
+
+    #         # schedule receiving node to receive photon at future time determined by light speed
+    #         future_time = self.timeline.now() + self.delay
+    #         process = Process(self.receiver, "receive_qubit",
+    #                           [source.name, qubit])
+    #         event = Event(future_time, process)
+    #         self.timeline.schedule(event)
+
+    #     # if photon lost, exit
+    #     else:
+    #         # print("photon lost in transmission")
+    #         pass
+
+    # def schedule_transmit(self, min_time: int) -> int:
+    #     """Method to schedule a time for photon transmission.
+
+    #     Quantum Channels are limited by max_rate of transmission.
+    #     This method returns the next available time for transmitting a photon.
+        
+    #     Args:
+    #         min_time (int): minimum simulation time for transmission.
+
+    #     Returns:
+    #         int: simulation time for next available transmission window.
+    #     """
+
+    #     min_time = max(min_time, self.timeline.now())
+    #     time_bin = min_time * (self.max_rate / 1e12)
+    #     if time_bin - int(time_bin) > 0.00001:
+    #         time_bin = int(time_bin) + 1
+    #     else:
+    #         time_bin = int(time_bin)
+
+    #     # find earliest available time bin
+    #     while time_bin in self.send_bins:
+    #         time_bin += 1
+    #     hq.heappush(self.send_bins, time_bin)
+
+    #     # calculate time
+    #     time = int(time_bin * (1e12 / self.max_rate))
+    #     return time
+
+
+
+
+
+    def transmit(self, pulse_train, source: "Node") -> None:
         """Method to transmit photon-encoded qubits.
 
         Args:
@@ -172,36 +271,42 @@ class QuantumChannel(OpticalChannel):
         assert self.delay != 0 and self.loss != 1, "QuantumChannel init() function has not been run for {}".format(self.name)
         assert source == self.sender
 
-        # print("Photon being transmitted over fiber")
-
-        # remove lowest time bin
-        if len(self.send_bins) > 0:
-            time = -1
-            while time < self.timeline.now():
-                time_bin = hq.heappop(self.send_bins)
-                time = int(time_bin * (1e12 / self.max_rate))
-            assert time == self.timeline.now(), "qc {} transmit method called at invalid time".format(self.name)
-
         # check if photon kept
-        if (self.sender.get_generator().random() > self.loss) or qubit.is_null:
-            # check if polarization encoding and apply necessary noise
-            if (qubit.encoding_type["name"] == "polarization") and (
-                    self.sender.get_generator().random() > self.polarization_fidelity):
-                qubit.random_noise(self.get_generator())
+        # if (self.sender.get_generator().random() > self.loss):
+        #     # check if polarization encoding and apply necessary noise
+        #     if (qubit.encoding_type["name"] == "polarization") and (
+        #             self.sender.get_generator().random() > self.polarization_fidelity):
+        #         qubit.random_noise(self.get_generator())
 
             # schedule receiving node to receive photon at future time determined by light speed
-            future_time = self.timeline.now() + self.delay
-            process = Process(self.receiver, "receive_qubit",
-                              [source.name, qubit])
-            event = Event(future_time, process)
-            self.timeline.schedule(event)
+            # future_time = self.timeline.now() + self.delay
+            # process = Process(self.receiver, "receive_qubit",
+            #                   [source.name, qubit])
+            # event = Event(future_time, process)
+            # self.timeline.schedule(event)
 
-        # if photon lost, exit
-        else:
-            # print("photon lost in transmission")
-            pass
+        # # if photon lost, exit
+        # else:
+        #     # print("photon lost in transmission")
+        #     pass
 
-    def schedule_transmit(self, min_time: int) -> int:
+        loss_matrix = np.random.binomial(pulse_train.photon_counts, self.loss)
+        pulse_train.add_loss(loss_matrix)
+        # if self.name == 'signal_channel':
+        #     for i in loss_matrix:
+        #         print("photons loss:", i)
+        #     for i,j in zip(pulse_train.photon_counts, pulse_train.time_offsets):
+        #         print("photon kept:", i, "at", j)
+
+        raman_photon_train = self.add_raman_photons(pulse_train.train_duration)
+
+        future_time = self.timeline.now() + self.delay
+        process = Process(self.receiver, "receive_qubit", [source.name, [pulse_train, raman_photon_train]])
+        event = Event(future_time, process)
+        self.timeline.schedule(event)
+
+
+    def schedule_transmit(self, pulse_train_length) -> int:
         """Method to schedule a time for photon transmission.
 
         Quantum Channels are limited by max_rate of transmission.
@@ -214,21 +319,30 @@ class QuantumChannel(OpticalChannel):
             int: simulation time for next available transmission window.
         """
 
-        min_time = max(min_time, self.timeline.now())
-        time_bin = min_time * (self.max_rate / 1e12)
-        if time_bin - int(time_bin) > 0.00001:
-            time_bin = int(time_bin) + 1
-        else:
-            time_bin = int(time_bin)
+        scheduled_time = max(self.timeline.now(), self.earliest_available_time)
 
-        # find earliest available time bin
-        while time_bin in self.send_bins:
-            time_bin += 1
-        hq.heappush(self.send_bins, time_bin)
+        self.earliest_available_time = scheduled_time + pulse_train_length
 
-        # calculate time
-        time = int(time_bin * (1e12 / self.max_rate))
-        return time
+        return scheduled_time
+
+        # min_time = max(min_time, self.timeline.now())
+        # time_bin = min_time * (self.max_rate / 1e12)
+        # if time_bin - int(time_bin) > 0.00001:
+        #     time_bin = int(time_bin) + 1
+        # else:
+        #     time_bin = int(time_bin)
+
+        # # find earliest available time bin
+        # while time_bin in self.send_bins:
+        #     time_bin += 1
+        # hq.heappush(self.send_bins, time_bin)
+
+        # # calculate time
+        # time = int(time_bin * (1e12 / self.max_rate))
+        # return time
+
+
+
 
 
 class ClassicalChannel(OpticalChannel):

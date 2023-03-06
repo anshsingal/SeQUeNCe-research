@@ -12,6 +12,7 @@ import numpy as np
 if TYPE_CHECKING:
     from ..kernel.timeline import Timeline
     from ..components.photon import Photon
+    from ..components.pulse_train import PulseTrain
     from typing import List
 
 from ..components.beam_splitter import BeamSplitter
@@ -21,6 +22,84 @@ from ..kernel.entity import Entity
 from ..kernel.event import Event
 from ..kernel.process import Process
 from ..utils.encoding import time_bin
+
+
+# class PulseDetector(Entity):
+#     """Pulse detector device."""
+
+#     def __init__(self, own, name: str, timeline: "Timeline", collection_probability=0.2, dark_count_rate=100, dead_time=1e3,
+#                  time_resolution=150):
+#         Entity.__init__(self, name+"_detector", timeline)  # Detector is part of the QSDetector, and does not have its own name
+#         self.own = own
+#         self.collection_probability = collection_probability
+#         self.dark_count_rate = dark_count_rate  # measured in 1/s
+#         self.dead_time = dead_time  # measured in Hz
+#         self.time_resolution = time_resolution  # measured in ps
+#         self.next_detection_time = -1
+#         # self.photon_counter = 0
+
+#     def init(self):
+#         """Implementation of Entity interface (see base class)."""
+#         self.add_dark_count()
+
+#     def get(self, pulse = None) -> None:
+#         # print("photon received by detector")
+#         """Method to receive a photon for measurement.
+
+#         Args:
+#             dark_get (bool): Signifies if the call is the result of a false positive dark count event.
+#                 If true, will ignore probability calculations (default false).
+
+#         Side Effects:
+#             May notify upper entities of a detection event.
+#         """
+#         # self.photon_counter += 1
+#         now = self.timeline.now()
+
+#         # if pulse:
+#         #     print(f"detector get time: {now}")
+#         # print("detection recieved, pulse:", type(pulse), "at time", now)
+#         time = round(now / self.time_resolution) * self.time_resolution
+#         if now > self.next_detection_time:
+#             if pulse == None: # Dark count
+#                 # time = round(now / self.time_resolution) * self.time_resolution
+#                 self.notify({'time': time})
+#             else:
+#                 time = now
+#                 # for i in pulse:
+#                 if np.random.rand() < self.collection_probability:
+#                     # time = int((now)/self.time_resolution) * self.time_resolution
+#                     self.notify({'time': time})
+            
+
+#             self.next_detection_time = now + self.dead_time  # period in ps
+
+#     def add_dark_count(self) -> None:
+#         """Method to schedule false positive detection events.
+
+#         Events are scheduled as a Poisson process.
+
+#         Side Effects:
+#             May schedule future `get` method calls.
+#             May schedule future calls to self.
+#         """
+
+#         if self.dark_count_rate > 0:
+#             time_to_next = int(self.get_generator().exponential(
+#                 1 / self.dark_count_rate) * 1e12)  # time to next dark count
+#             time = time_to_next + self.timeline.now()  # time of next dark count
+
+#             process1 = Process(self, "add_dark_count", [])  # schedule photon detection and dark count add in future
+#             process2 = Process(self, "get", [True])
+#             event1 = Event(time, process1)
+#             event2 = Event(time, process2)
+#             self.timeline.schedule(event1)
+#             self.timeline.schedule(event2)
+
+#     def notify(self, info: Dict[str, Any]):
+#         """Custom notify function (calls `trigger` method)."""
+#         for observer in self._observers:
+#             observer.trigger(self, info)
 
 
 class PulseDetector(Entity):
@@ -35,13 +114,18 @@ class PulseDetector(Entity):
         self.dead_time = dead_time  # measured in Hz
         self.time_resolution = time_resolution  # measured in ps
         self.next_detection_time = -1
+        self.detector_buffer = []
         # self.photon_counter = 0
 
     def init(self):
         """Implementation of Entity interface (see base class)."""
-        self.add_dark_count()
+        # self.add_dark_count()
+        pass
 
-    def get(self, pulse = None) -> None:
+    # def add_to_buffer(self, pulse_trains):
+
+
+    def get(self, pulse_trains) -> None:
         # print("photon received by detector")
         """Method to receive a photon for measurement.
 
@@ -59,21 +143,27 @@ class PulseDetector(Entity):
         #     print(f"detector get time: {now}")
         # print("detection recieved, pulse:", type(pulse), "at time", now)
         time = round(now / self.time_resolution) * self.time_resolution
-        if now > self.next_detection_time:
-            if pulse == None: # Dark count
-                # time = round(now / self.time_resolution) * self.time_resolution
-                self.notify({'time': time})
-            else:
-                time = now
-                # for i in pulse:
-                if np.random.rand() < self.collection_probability:
-                    # time = int((now)/self.time_resolution) * self.time_resolution
-                    self.notify({'time': time})
+
+        for pulse_train in pulse_trains:
+            loss_matrix = np.random.binomial(pulse_train.photon_counts, 1-self.collection_probability)
+            pulse_train.add_loss(loss_matrix)
+
             
 
-            self.next_detection_time = now + self.dead_time  # period in ps
+            if self.own.name == "signal_receiver":
+                for i,j in zip(pulse_train.photon_counts, self.detector_buffer[0]):
+                    print("photons detected:", i, "at", j)
 
-    def add_dark_count(self) -> None:
+
+        dark_counts_pulse_train = self.add_dark_count(pulse_trains[0].train_duration)
+        pulse_trains.append(dark_counts_pulse_train)
+
+        print(pulse_trains)
+
+        # self.add_to_buffer(time, pulse_trains)
+
+
+    def add_dark_count(self, duration) -> None:
         """Method to schedule false positive detection events.
 
         Events are scheduled as a Poisson process.
@@ -82,18 +172,37 @@ class PulseDetector(Entity):
             May schedule future `get` method calls.
             May schedule future calls to self.
         """
+        net_rate = (self.dark_count_rate/1e12) * duration
+        num_photon_pairs = np.random.poisson(lam = net_rate)
+        # num_photon_pairs = np.random.poisson(lam = (self.dark_count_rate/1e12) * duration)
+        if num_photon_pairs == 0:
+            return []
+        last_arrival = duration + 1
+        while last_arrival > duration:
+            last_arrival = np.random.gamma(shape = num_photon_pairs, scale = 1e12/self.dark_count_rate)
 
-        if self.dark_count_rate > 0:
-            time_to_next = int(self.get_generator().exponential(
-                1 / self.dark_count_rate) * 1e12)  # time to next dark count
-            time = time_to_next + self.timeline.now()  # time of next dark count
+        cur_max = last_arrival
+        n = num_photon_pairs-1
+        arrival_times = [0]*(n)                  
 
-            process1 = Process(self, "add_dark_count", [])  # schedule photon detection and dark count add in future
-            process2 = Process(self, "get", [True])
-            event1 = Event(time, process1)
-            event2 = Event(time, process2)
-            self.timeline.schedule(event1)
-            self.timeline.schedule(event2)
+        for i in range(n,0,-1):
+            cur_max = cur_max*np.random.rand()**(1/i)
+            arrival_times[i-1] = int(cur_max)
+        
+        arrival_times = np.append(arrival_times, [int(last_arrival)])
+        return PulseTrain(arrival_times, duration, None)
+
+        # if self.dark_count_rate > 0:
+        #     time_to_next = int(self.get_generator().exponential(
+        #         1 / self.dark_count_rate) * 1e12)  # time to next dark count
+        #     time = time_to_next + self.timeline.now()  # time of next dark count
+
+        #     process1 = Process(self, "add_dark_count", [])  # schedule photon detection and dark count add in future
+        #     process2 = Process(self, "get", [True])
+        #     event1 = Event(time, process1)
+        #     event2 = Event(time, process2)
+        #     self.timeline.schedule(event1)
+        #     self.timeline.schedule(event2)
 
     def notify(self, info: Dict[str, Any]):
         """Custom notify function (calls `trigger` method)."""
