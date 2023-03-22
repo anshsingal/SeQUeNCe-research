@@ -12,6 +12,11 @@ from ..utils.encoding import polarization
 from ..utils.quantum_state import QuantumState
 
 
+class PulseWindow():
+    def __init__(self, ID):
+        self.trains = []
+        self.ID = ID
+
 class PulseTrain():
     """Class for a single photon.
 
@@ -24,7 +29,16 @@ class PulseTrain():
         is_null (bool): defines whether photon is real or a "ghost" photon (not detectable but used in memory encoding).
     """
 
-    def __init__(self, photon_counts, pulse_width, pulse_separation, wavelength, encoding_type=polarization):
+    def __init__(self, *args):
+        if len(args) == 4:
+            self.init1(*args)
+        elif len(args) == 3:
+            self.init2(*args)
+        else:
+            pass
+            # Default constructor
+
+    def init1(self, photon_counts, pulse_width, pulse_separation, wavelength, encoding_type=polarization):
         """Constructor for the photon class."""
 
         self.pulse_width = pulse_width
@@ -42,33 +56,30 @@ class PulseTrain():
         self.remove_vaccum()
 
 
-    def __init__(self, time_offsets, train_duration, wavelength, encoding_type=polarization):
+    def init2(self, time_offsets, train_duration, wavelength, encoding_type=polarization):
         """Constructor for the photon class."""
 
         self.wavelength = wavelength
         self.encoding_type = encoding_type
         # self.pulse_count = len(time_offsets)
 
-        self.photon_counts = np.ones(len(time_offsets))
+        self.photon_counts = np.ones(len(time_offsets), dtype = "int")
 
         self.train_duration = train_duration
 
         self.time_offsets = time_offsets
 
 
-    def __init__(self):
-        pass
-
 
     def copy(self):
         copied_pulse_train = PulseTrain()
         copied_pulse_train.pulse_width = self.pulse_width
         copied_pulse_train.pulse_separation = self.pulse_separation
-        copied_pulse_train.photon_counts = self.photon_counts
+        copied_pulse_train.photon_counts = self.photon_counts.copy()
         copied_pulse_train.wavelength = self.wavelength
         copied_pulse_train.encoding_type = self.encoding_type
         copied_pulse_train.pulse_count = self.pulse_count
-        copied_pulse_train.time_offsets = self.time_offsets
+        copied_pulse_train.time_offsets = self.time_offsets.copy()
         copied_pulse_train.train_duration = self.train_duration
 
         return copied_pulse_train

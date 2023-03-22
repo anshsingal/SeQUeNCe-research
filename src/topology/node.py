@@ -136,6 +136,8 @@ class Node(Entity):
     def send_qubit(self, dst: str, qubit) -> None:
         """Interface for quantum channel `transmit` method."""
 
+        print("sending qubits")
+
         self.qchannels[dst].transmit(qubit, self)
 
     def receive_qubit(self, src: str, qubit) -> None:

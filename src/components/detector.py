@@ -12,9 +12,8 @@ import numpy as np
 if TYPE_CHECKING:
     from ..kernel.timeline import Timeline
     from ..components.photon import Photon
-    from ..components.pulse_train import PulseTrain
     from typing import List
-
+from ..components.pulse_train import PulseTrain
 from ..components.beam_splitter import BeamSplitter
 from ..components.switch import Switch
 from ..components.interferometer import Interferometer
@@ -22,7 +21,13 @@ from ..kernel.entity import Entity
 from ..kernel.event import Event
 from ..kernel.process import Process
 from ..utils.encoding import time_bin
-
+import time 
+import cupy as cp
+import h5py
+import sys
+np.set_printoptions(threshold = sys.maxsize)
+np.set_printoptions(suppress=True)
+np.set_printoptions(linewidth=np.inf)
 
 # class PulseDetector(Entity):
 #     """Pulse detector device."""
@@ -115,6 +120,9 @@ class PulseDetector(Entity):
         self.time_resolution = time_resolution  # measured in ps
         self.next_detection_time = -1
         self.detector_buffer = []
+        # self.f = open(f"{self.own.name}_buffer.txt", "w+")
+        self.log_file = h5py.File(f"{self.own.name}_buffer", "w")
+        self.index = 0
         # self.photon_counter = 0
 
     def init(self):
@@ -125,7 +133,7 @@ class PulseDetector(Entity):
     # def add_to_buffer(self, pulse_trains):
 
 
-    def get(self, pulse_trains) -> None:
+    def get(self, pulse_window) -> None:
         # print("photon received by detector")
         """Method to receive a photon for measurement.
 
@@ -137,30 +145,103 @@ class PulseDetector(Entity):
             May notify upper entities of a detection event.
         """
         # self.photon_counter += 1
-        now = self.timeline.now()
+        
+        # print("detected a photon train at", self.own.name, now)
 
         # if pulse:
         #     print(f"detector get time: {now}")
         # print("detection recieved, pulse:", type(pulse), "at time", now)
-        time = round(now / self.time_resolution) * self.time_resolution
+        # time = round(now / self.time_resolution) * self.time_resolution
 
-        for pulse_train in pulse_trains:
+        for pulse_train in pulse_window.trains:
+            # print("Type of photon counts:", type(pulse_train.photon_counts[0]))
             loss_matrix = np.random.binomial(pulse_train.photon_counts, 1-self.collection_probability)
             pulse_train.add_loss(loss_matrix)
 
             
 
-            if self.own.name == "signal_receiver":
-                for i,j in zip(pulse_train.photon_counts, self.detector_buffer[0]):
-                    print("photons detected:", i, "at", j)
+            # if self.own.name == "signal_receiver":
+            #     for i,j in zip(pulse_train.photon_counts, self.detector_buffer[0]):
+            #         print("photons detected:", i, "at", j)
 
 
-        dark_counts_pulse_train = self.add_dark_count(pulse_trains[0].train_duration)
-        pulse_trains.append(dark_counts_pulse_train)
+        dark_counts_pulse_train = self.add_dark_count(pulse_window.trains[0].train_duration)
+        # print("dark count type:", type(dark_counts_pulse_train.time_offsets))
+        pulse_window.trains.append(dark_counts_pulse_train)
 
-        print(pulse_trains)
+        # if self.own.name == "idler_receiver":
+        #     print("num detected photon train:", len(pulse_trains[0].photon_counts))
+        #     # for i,j in zip(pulse_trains[0].photon_counts, pulse_trains[0].time_offsets):
+        #     #     print(i, j)
+        #     print("num detected raman train:", len(pulse_trains[1].photon_counts))
+        #     # for i,j in zip(pulse_trains[1].photon_counts, pulse_trains[1].time_offsets):
+        #     #     print(i, j)
+        #     print("num dark count train:", pulse_trains[2].photon_counts)
+        #     # for i,j in zip(pulse_trains[2].photon_counts, pulse_trains[2].time_offsets):
+        #     #     print(i, j)
+
+        self.add_to_detector_buffer(pulse_window)
+
+        
+
+        # print(self.own.name, "raman potons:", pulse_trains[1].time_offsets)
+
+        # CPU_start = time.time()
+        # CPU_sorted_raman_array = sorted(pulse_trains[1].time_offsets)
+        # CPU_end = time.time()
+
+        # print("CPU sorting time:", CPU_end - CPU_start)
+
+        # GPU_start = time.time()
+        # GPU_raman_array = cp.asarray(pulse_trains[1].time_offsets)
+        # GPU_sorted_raman_array = cp.sort(GPU_raman_array)
+        # GPU_end = time.time()
+
+        # print("GPU sorting time:", GPU_end - GPU_start)
+
+
+        # print(pulse_trains)
 
         # self.add_to_buffer(time, pulse_trains)
+
+
+    def add_to_detector_buffer(self, pulse_window):
+        now = self.timeline.now()
+        temp_detector = np.array([])
+
+        for pulse_train in pulse_window.trains:
+            # print(self.own.name, type(pulse_train.time_offsets))
+            temp_detector = np.append(temp_detector, now + pulse_train.time_offsets)
+
+        # print("length of pulse train detected in pulse ID:", pulse_window.ID, len(temp_detector))
+        # print("pulse window ID", pulse_window.ID)
+        
+        self.log_file.create_dataset(f"{pulse_window.ID}", data = temp_detector)
+
+        # self.notify({'time':})
+            # print(self.own.name, "time offsets:", pulse_train.time_offsets, "with size:", len(pulse_train.time_offsets))
+            # temp_detector = np.append(temp_detector, now + cp.asarray(pulse_train.time_offsets))
+        
+        # GPU_detection_array = cp.asarray(temp_detector)
+        # GPU_sorted_detection_array = cp.sort(cp.asarray(temp_detector))
+        # cp.cuda.runtime.deviceSynchronize()
+
+        # list_str = str(cp.asnumpy(GPU_sorted_detection_array))
+        # print("sorted list:", list_str)
+        # self.f.write(list_str)
+        # self.f.write("\n")
+        # self.f.flush()
+        # self.f.write(str(temp_detector))
+        # self.f.write("\n")
+        # self.f.flush()
+
+
+
+        # self.detector_buffer.extend(cp.asnumpy(GPU_sorted_detection_array))
+
+
+
+
 
 
     def add_dark_count(self, duration) -> None:
@@ -176,20 +257,27 @@ class PulseDetector(Entity):
         num_photon_pairs = np.random.poisson(lam = net_rate)
         # num_photon_pairs = np.random.poisson(lam = (self.dark_count_rate/1e12) * duration)
         if num_photon_pairs == 0:
-            return []
+            return PulseTrain(np.array([]), duration, None)
+            # return []
         last_arrival = duration + 1
         while last_arrival > duration:
             last_arrival = np.random.gamma(shape = num_photon_pairs, scale = 1e12/self.dark_count_rate)
 
-        cur_max = last_arrival
-        n = num_photon_pairs-1
-        arrival_times = [0]*(n)                  
+        # print("dark count dura")
+        # cur_max = last_arrival
+        # n = num_photon_pairs-1
+        # arrival_times = np.array([0]*(n))                  
 
-        for i in range(n,0,-1):
-            cur_max = cur_max*np.random.rand()**(1/i)
-            arrival_times[i-1] = int(cur_max)
+        # for i in range(n,0,-1):
+        #     cur_max = cur_max*np.random.rand()**(1/i)
+        #     print("cu_max:", cur_max)
+        #     arrival_times[i-1] = int(cur_max)
+        arrival_times = np.random.rand(num_photon_pairs - 1) * duration
         
         arrival_times = np.append(arrival_times, [int(last_arrival)])
+
+        # print("type of arrival_times:", type(arrival_times), arrival_times)
+
         return PulseTrain(arrival_times, duration, None)
 
         # if self.dark_count_rate > 0:

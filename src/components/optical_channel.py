@@ -13,8 +13,8 @@ if TYPE_CHECKING:
     from ..kernel.timeline import Timeline
     from ..topology.node import Node
     from ..components.photon import Photon
-    from ..components.pulse_train import PulseTrain
     from ..message import Message
+from ..components.pulse_train import PulseTrain
 from .photon import Photon
 from ..kernel.entity import Entity
 from ..kernel.event import Event
@@ -106,6 +106,7 @@ class QuantumChannel(OpticalChannel):
         self.send_bins = []
         self.earliest_available_time = 0
         self.record_raman_photons_start = None
+        self.clock_running = False
 
     def init(self) -> None:
         """Implementation of Entity interface (see base class)."""
@@ -127,38 +128,29 @@ class QuantumChannel(OpticalChannel):
         sender.assign_qchannel(self, receiver)
 
     def start_clock(self, clock_power, narrow_band_filter_bandwidth):
+        self.clock_running = True
         self.record_raman_photons_start = self.timeline.now()
         self.clock_power = clock_power
         self.narrow_band_filter_bandwidth = narrow_band_filter_bandwidth
 
 
     def add_raman_photons(self, train_duration):
-
-        print("clock_started")
-
-        # clock_power = 0.0003
-        # raman_coefficient = 4.6 * 10**(-10)
-        # narrow_band_filter_bandwidth = 1*10**(-6)
-        # clock_attenuation = 0.099
         h = 6.62607015 * 10**(-28)
         c = 3 * 10**8
-
-        # calculation_window = 1/1000 # amount of time that one call of start clock caters to. Units in seconds. Not taking entire second since
-                                    # no. of photons per second is extremey high. 
 
         raman_power = np.abs(self.clock_power * self.raman_coefficient * self.narrow_band_filter_bandwidth * (np.exp(-self.attenuation * self.distance) - np.exp(-self.classical_channel_attenuation * self.distance)) / (self.attenuation - self.classical_channel_attenuation))
         raman_energy = raman_power * train_duration/1e12
         num_photons_added = int(raman_energy / (h * c / self.quantum_channel_wavelength))
-        print(num_photons_added)
 
+        # cur_max = train_duration
+        # n = num_photons_added
+        # photon_generation_times = np.zeros(n)                       #generate an array x of size n
 
-        cur_max = train_duration
-        n = num_photons_added
-        photon_generation_times = [0]*(n)                         #generate an array x of size n
+        # for i in range(n,0,-1):
+        #     cur_max = cur_max*np.random.rand()**(1/i)
+        #     photon_generation_times[i-1] = cur_max
 
-        for i in range(n,0,-1):
-            cur_max = cur_max*np.random.rand()**(1/i) #the magic formula
-            photon_generation_times[i-1] = cur_max
+        photon_generation_times = np.random.rand(num_photons_added) * train_duration
 
         return PulseTrain(photon_generation_times, train_duration, self.quantum_channel_wavelength)
 
@@ -257,7 +249,7 @@ class QuantumChannel(OpticalChannel):
 
 
 
-    def transmit(self, pulse_train, source: "Node") -> None:
+    def transmit(self, pulse_window, source: "Node") -> None:
         """Method to transmit photon-encoded qubits.
 
         Args:
@@ -270,6 +262,8 @@ class QuantumChannel(OpticalChannel):
 
         assert self.delay != 0 and self.loss != 1, "QuantumChannel init() function has not been run for {}".format(self.name)
         assert source == self.sender
+
+        # print("transmitting a photon on", self.name, "at", self.timeline.now(), "o time:", self.timeline.now() + self.delay)
 
         # check if photon kept
         # if (self.sender.get_generator().random() > self.loss):
@@ -290,18 +284,35 @@ class QuantumChannel(OpticalChannel):
         #     # print("photon lost in transmission")
         #     pass
 
-        loss_matrix = np.random.binomial(pulse_train.photon_counts, self.loss)
-        pulse_train.add_loss(loss_matrix)
+        loss_matrix = np.random.binomial(pulse_window.trains[0].photon_counts, self.loss)
+        pulse_window.trains[0].add_loss(loss_matrix)
+        # pulse_trains = [pulse_train]
+
+        # if self.name == 'signal_channel':
+        #     print("num transmitting photon train:", len(pulse_train.photon_counts))
+            # for i,j in zip(pulse_train.photon_counts, pulse_train.time_offsets):
+            #     print(i, j)
+
+
         # if self.name == 'signal_channel':
         #     for i in loss_matrix:
         #         print("photons loss:", i)
         #     for i,j in zip(pulse_train.photon_counts, pulse_train.time_offsets):
         #         print("photon kept:", i, "at", j)
+        if self.clock_running:
+            raman_photon_train = self.add_raman_photons(pulse_window.trains[0].train_duration)
+            # print("raman photon train type:", type(raman_photon_train.time_offsets))
+            pulse_window.trains.append(raman_photon_train)
+            # if self.name == 'signal_channel':
+                # print("num Raman photon train sent:", len(raman_photon_train.photon_counts))
+                # for i,j in zip(raman_photon_train.photon_counts, raman_photon_train.time_offsets):
+                    # print(i, j)
 
-        raman_photon_train = self.add_raman_photons(pulse_train.train_duration)
-
+        print("transmitting a photon on", self.name, "at", self.timeline.now(), "on time:", self.timeline.now() + self.delay)
+        # print("pulse_trains:", pulse_trains)
         future_time = self.timeline.now() + self.delay
-        process = Process(self.receiver, "receive_qubit", [source.name, [pulse_train, raman_photon_train]])
+        # print("receiver:", getattr(self.receiver, "receive_qubit"), type(self.receiver))
+        process = Process(self.receiver, "receive_qubit", [source.name, pulse_window])
         event = Event(future_time, process)
         self.timeline.schedule(event)
 

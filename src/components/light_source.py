@@ -9,7 +9,7 @@ import numpy as np
 from copy import copy
 
 from .photon import Photon
-from .pulse_train import PulseTrain
+from .pulse_train import PulseTrain, PulseWindow
 from ..kernel.entity import Entity
 from ..kernel.event import Event
 from ..kernel.process import Process
@@ -292,13 +292,15 @@ class ParametricSource(Entity):
         self.pulse_width = pulse_width # width of individual temporal mode in ps
         self.pulse_separation = pulse_separation
         self.transmit_time = self.own.timeline.now()
-        self.batch_size  = 1000
+        self.batch_size  = 1000000
+        self.pulse_window_ID = 0
         # self.wavelengths = wavelengths
 
     def init(self):
         pass
 
     def emit(self):
+        # print("batch length:", self.batch_size * (self.pulse_separation + self.pulse_width))
         # print("light source emission called")
         """Method to emit photons.
 
@@ -325,22 +327,42 @@ class ParametricSource(Entity):
         signal_pulse_train = PulseTrain(num_photon_pairs, self.pulse_width, self.pulse_separation, self.wavelength)
         idler_pulse_train = copy(signal_pulse_train)
 
-        for i,j in zip(signal_pulse_train.photon_counts,self.own.timeline.now() + signal_pulse_train.time_offsets):
-            print("photons sent:", i, "at", j)
+        # for i,j in zip(signal_pulse_train.photon_counts,self.own.timeline.now() + signal_pulse_train.time_offsets):
+        #     print("photons sent:", i, "at", j)
 
         signal_emit_time = self.own.schedule_qubit(self.signal_receiver, signal_pulse_train.train_duration)
         idler_emit_time = self.own.schedule_qubit(self.idler_receiver, idler_pulse_train.train_duration)
 
         assert signal_emit_time == idler_emit_time
+
+        signal_pulse_window = PulseWindow(self.pulse_window_ID)
+        idler_pulse_window = PulseWindow(self.pulse_window_ID)
+        self.pulse_window_ID += 1 
+
+        signal_pulse_window.trains.append(signal_pulse_train)
+        idler_pulse_window.trains.append(idler_pulse_train)
+
+        # print("Sent idler photon train:")
+        # for i,j in zip(idler_pulse_train.photon_counts,idler_pulse_train.time_offsets):
+        #     print(i, j)
+
+        # print("Sent signal photon train:")
+        # for i,j in zip(signal_pulse_train.photon_counts,signal_pulse_train.time_offsets):
+        #     print(i, j)
+
+        # print("num sent signal photon train:", len(signal_pulse_train.photon_counts), "at time:", signal_emit_time)
         
-        signal_process = Process(self.own, "send_qubit", [self.signal_receiver, signal_pulse_train])
-        idler_process = Process(self.own, "send_qubit", [self.idler_receiver, idler_pulse_train])
+        signal_process = Process(self.own, "send_qubit", [self.signal_receiver, signal_pulse_window])
+        idler_process = Process(self.own, "send_qubit", [self.idler_receiver, idler_pulse_window])
         
         signal_event = Event(signal_emit_time, signal_process)
         idler_event = Event(idler_emit_time, idler_process)
         
         self.own.timeline.schedule(signal_event)
         self.own.timeline.schedule(idler_event)
+        # print("emission events scheduled")
+
+        return signal_emit_time + self.batch_size * (self.pulse_separation + self.pulse_width)
 
         # for i in num_photon_pairs:
                 
