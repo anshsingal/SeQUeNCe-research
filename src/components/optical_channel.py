@@ -135,7 +135,7 @@ class QuantumChannel(OpticalChannel):
 
 
     def add_raman_photons(self, train_duration):
-        h = 6.62607015 * 10**(-28)
+        h = 6.62607015 * 10**(-34)
         c = 3 * 10**8
 
         raman_power = np.abs(self.clock_power * self.raman_coefficient * self.narrow_band_filter_bandwidth * (np.exp(-self.attenuation * self.distance) - np.exp(-self.classical_channel_attenuation * self.distance)) / (self.attenuation - self.classical_channel_attenuation))
@@ -149,6 +149,8 @@ class QuantumChannel(OpticalChannel):
         # for i in range(n,0,-1):
         #     cur_max = cur_max*np.random.rand()**(1/i)
         #     photon_generation_times[i-1] = cur_max
+
+        # print("Raman photosns added", num_photons_added)
 
         photon_generation_times = np.random.rand(num_photons_added) * train_duration
 
@@ -286,6 +288,8 @@ class QuantumChannel(OpticalChannel):
 
         loss_matrix = np.random.binomial(pulse_window.trains[0].photon_counts, self.loss)
         pulse_window.trains[0].add_loss(loss_matrix)
+        # print(self.name, "loss matrix:", loss_matrix)
+        # print("after adding loss:", pulse_window.trains[0].time_offsets)
         # pulse_trains = [pulse_train]
 
         # if self.name == 'signal_channel':
@@ -308,7 +312,7 @@ class QuantumChannel(OpticalChannel):
                 # for i,j in zip(raman_photon_train.photon_counts, raman_photon_train.time_offsets):
                     # print(i, j)
 
-        print("transmitting a photon on", self.name, "at", self.timeline.now(), "on time:", self.timeline.now() + self.delay)
+        # print("transmitting a photon on", self.name, "at", self.timeline.now(), "on time:", pulse_window.trains[0].train_duration + self.timeline.now() + self.delay)
         # print("pulse_trains:", pulse_trains)
         future_time = self.timeline.now() + self.delay
         # print("receiver:", getattr(self.receiver, "receive_qubit"), type(self.receiver))

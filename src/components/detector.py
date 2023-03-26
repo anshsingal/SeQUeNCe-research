@@ -158,6 +158,9 @@ class PulseDetector(Entity):
             loss_matrix = np.random.binomial(pulse_train.photon_counts, 1-self.collection_probability)
             pulse_train.add_loss(loss_matrix)
 
+            # print(self.own.name, "final detected loss matrix:", loss_matrix)
+            # print(self.own.name, "final detected:", pulse_train.time_offsets)
+
             
 
             # if self.own.name == "signal_receiver":
@@ -217,6 +220,10 @@ class PulseDetector(Entity):
         # print("pulse window ID", pulse_window.ID)
         
         self.log_file.create_dataset(f"{pulse_window.ID}", data = temp_detector)
+        # print(self.own.name)
+        if self.own.name == "signal_receiver":
+            print("pulse window ID", pulse_window.ID)
+
 
         # self.notify({'time':})
             # print(self.own.name, "time offsets:", pulse_train.time_offsets, "with size:", len(pulse_train.time_offsets))
