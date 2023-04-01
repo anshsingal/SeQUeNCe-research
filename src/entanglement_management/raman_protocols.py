@@ -158,8 +158,8 @@ class RamanTestReceiver(Protocol):
 
         # print("hist_width:", hist_width, "correlations:", self.coincidence_times)
 
-        n, bins, patches = plt.hist(self.coincidence_times, range(-hist_width,hist_width, self.half_hist_bin_width))# , range(-28125, 28126, 625)
-        # print("sorted n:", sorted(n))
+        # plt.hist(self.coincidence_times, range(-hist_width,hist_width, self.half_hist_bin_width))# , range(-28125, 28126, 625)
+        n, edges = np.histogram(self.coincidence_times, bins = int(2*hist_width/self.half_hist_bin_width), range = (-hist_width, hist_width))
         n = list(n)
         matched_correlation = max(n)
         n.remove(matched_correlation)
@@ -167,7 +167,11 @@ class RamanTestReceiver(Protocol):
         for i in range(4):
             unmatched_correlations.append(max(n))
             n.remove(unmatched_correlations[-1])
-        print("CAR:", matched_correlation/(sum(unmatched_correlations)/len(unmatched_correlations)))
+        CAR = matched_correlation/(sum(unmatched_correlations)/len(unmatched_correlations))
+        print("CAR:", CAR)
+        file1 = open("CAR_Data.txt", "a")  # append mode
+        file1.write(f"{CAR}\n")
+        file1.close()
         # plt.yscale('log')
         # plt.show()
 
