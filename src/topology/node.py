@@ -30,6 +30,9 @@ from ..qkd.cascade import Cascade
 from ..resource_management.resource_manager import ResourceManager
 from ..network_management.network_manager import NewNetworkManager
 from ..utils.encoding import *
+from ..entanglement_management.raman_protocols import RamanTestSender
+from ..components.detector import PulseDetector
+from ..components.light_source import ParametricSource
 
 
 class Node(Entity):
@@ -142,6 +145,43 @@ class Node(Entity):
         """Method to receive qubits from quantum channel (does nothing for this class)."""
 
         pass
+
+
+class raman_receiver_node(Node):
+    def __init__(self, name, timeline, sender_name, collection_probability, dark_count_rate, dead_time, time_resolution):
+        Node.__init__(self, name, timeline)
+        self.detector = PulseDetector(self, name, timeline, collection_probability, dark_count_rate, dead_time, time_resolution)
+        self.detector.owner = self
+    
+    def attach_detector_to_receiver(self, protocol):
+        self.detector.attach(protocol)
+        self.protocol = protocol
+
+    def receive_message(self, src: str, msg: "Message"):
+        self.protocol.received_message(src, msg)
+
+    def receive_qubit(self, src, qubit):
+        self.detector.get(qubit)
+
+class raman_sender_node(Node):
+    def __init__(self, name, timeline, num_iterations, clock_power, narrow_band_filter_bandwidth, wavelength, mean_photon_num, is_distinguishable, pulse_separation, batch_size, pulse_width):
+        Node.__init__(self, name, timeline)
+        self.protocol = RamanTestSender(self, num_iterations, clock_power, narrow_band_filter_bandwidth)
+        self.wavelength = wavelength
+        self.mean_photon_num = mean_photon_num
+        self.is_distinguishable = is_distinguishable
+        self.pulse_separation = pulse_separation
+        self.batch_size = batch_size
+        self.pulse_width = pulse_width
+
+
+    def attach_lightsource_to_receivers(self, signal_receiver, idler_receiver):
+        self.parametric_source = ParametricSource(self, None, self.timeline, signal_receiver, 
+                                                  idler_receiver, self.wavelength, self.mean_photon_num, self.is_distinguishable, self.pulse_separation, self.batch_size, self.pulse_width)
+        self.signal_receiver = signal_receiver
+        self.idler_receiver = idler_receiver
+        # self.parametric_source.own = self
+        # self.spdc_source.attach(self.protocol)
 
 
 class BSMNode(Node):

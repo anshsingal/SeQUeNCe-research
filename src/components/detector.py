@@ -218,7 +218,7 @@ class PulseDetector(Entity):
 
         # print("length of pulse train detected in pulse ID:", pulse_window.ID, len(temp_detector))
         # print("pulse window ID", pulse_window.ID)
-        
+        # print(self.own.name, "window ID:", pulse_window.ID, temp_detector)
         self.log_file.create_dataset(f"{pulse_window.ID}", data = temp_detector)
         # print(self.own.name)
         if self.own.name == "signal_receiver":

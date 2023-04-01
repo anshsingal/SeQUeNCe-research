@@ -150,7 +150,7 @@ class QuantumChannel(OpticalChannel):
         #     cur_max = cur_max*np.random.rand()**(1/i)
         #     photon_generation_times[i-1] = cur_max
 
-        # print("Raman photosns added", num_photons_added)
+        print("Raman photosns added", num_photons_added)
 
         photon_generation_times = np.random.rand(num_photons_added) * train_duration
 

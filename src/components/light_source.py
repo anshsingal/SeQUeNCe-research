@@ -280,7 +280,7 @@ class SPDCSource(LightSource):
 
 class ParametricSource(Entity):
     def __init__(self, own, name, timeline, signal_receiver, idler_receiver, wavelength,
-                 mean_photon_num, is_distinguishable, pulse_separation, pulse_width = 50):
+                 mean_photon_num, is_distinguishable, pulse_separation, batch_size, pulse_width = 50):
         Entity.__init__(self, name, timeline)
 
         self.own = own
@@ -292,7 +292,7 @@ class ParametricSource(Entity):
         self.pulse_width = pulse_width # width of individual temporal mode in ps
         self.pulse_separation = pulse_separation
         self.transmit_time = self.own.timeline.now()
-        self.batch_size  = 50000000
+        self.batch_size  = batch_size
         self.pulse_window_ID = 0
         # self.wavelengths = wavelengths
 
