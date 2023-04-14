@@ -153,10 +153,12 @@ class PulseDetector(Entity):
         # print("detection recieved, pulse:", type(pulse), "at time", now)
         # time = round(now / self.time_resolution) * self.time_resolution
 
-        for pulse_train in pulse_window.trains:
+        for pulse_train in pulse_window.source_train:
             # print("Type of photon counts:", type(pulse_train.photon_counts[0]))
             loss_matrix = np.random.binomial(pulse_train.photon_counts, 1-self.collection_probability)
             pulse_train.add_loss(loss_matrix)
+
+        
 
             # print(self.own.name, "final detected loss matrix:", loss_matrix)
             # print(self.own.name, "final detected:", pulse_train.time_offsets)
@@ -168,9 +170,9 @@ class PulseDetector(Entity):
             #         print("photons detected:", i, "at", j)
 
 
-        dark_counts_pulse_train = self.add_dark_count(pulse_window.trains[0].train_duration)
+        dark_counts_pulse_train = self.add_dark_count(pulse_window.source_train[0].train_duration)
         # print("dark count type:", type(dark_counts_pulse_train.time_offsets))
-        pulse_window.trains.append(dark_counts_pulse_train)
+        pulse_window.noise_train.append(dark_counts_pulse_train)
 
         # if self.own.name == "idler_receiver":
         #     print("num detected photon train:", len(pulse_trains[0].photon_counts))
@@ -212,7 +214,15 @@ class PulseDetector(Entity):
         now = self.timeline.now()
         temp_detector = np.array([])
 
-        for pulse_train in pulse_window.trains:
+        for pulse_train in pulse_window.source_train:
+            # print(self.own.name, type(pulse_train.time_offsets))
+            temp_detector = np.append(temp_detector, now + pulse_train.time_offsets)
+
+        for pulse_train in pulse_window.noise_train:
+            # print(self.own.name, type(pulse_train.time_offsets))
+            temp_detector = np.append(temp_detector, now + pulse_train.time_offsets)
+
+        for pulse_train in pulse_window.other_trains:
             # print(self.own.name, type(pulse_train.time_offsets))
             temp_detector = np.append(temp_detector, now + pulse_train.time_offsets)
 

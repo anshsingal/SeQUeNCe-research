@@ -112,7 +112,8 @@ class QuantumChannel(OpticalChannel):
         """Implementation of Entity interface (see base class)."""
         # print("optical channel is inited")
         self.delay = round((self.distance*1000 / self.light_speed) * 1e12)
-        self.loss = 1 - 10 ** (self.distance * self.attenuation / -10)
+        # self.loss = 1 - 10 ** (self.distance * self.attenuation / -10)
+        self.loss = self.attenuation * self.distance
 
     def set_ends(self, sender: "Node", receiver: str) -> None:
         """Method to set endpoints for the quantum channel.
@@ -286,8 +287,8 @@ class QuantumChannel(OpticalChannel):
         #     # print("photon lost in transmission")
         #     pass
 
-        loss_matrix = np.random.binomial(pulse_window.trains[0].photon_counts, self.loss)
-        pulse_window.trains[0].add_loss(loss_matrix)
+        loss_matrix = np.random.binomial(pulse_window.source_train[0].photon_counts, self.loss)
+        pulse_window.source_train[0].add_loss(loss_matrix)
         # print(self.name, "loss matrix:", loss_matrix)
         # print("after adding loss:", pulse_window.trains[0].time_offsets)
         # pulse_trains = [pulse_train]
@@ -304,9 +305,9 @@ class QuantumChannel(OpticalChannel):
         #     for i,j in zip(pulse_train.photon_counts, pulse_train.time_offsets):
         #         print("photon kept:", i, "at", j)
         if self.clock_running:
-            raman_photon_train = self.add_raman_photons(pulse_window.trains[0].train_duration)
+            raman_photon_train = self.add_raman_photons(pulse_window.source_train[0].train_duration)
             # print("raman photon train type:", type(raman_photon_train.time_offsets))
-            pulse_window.trains.append(raman_photon_train)
+            pulse_window.noise_train.append(raman_photon_train)
             # if self.name == 'signal_channel':
                 # print("num Raman photon train sent:", len(raman_photon_train.photon_counts))
                 # for i,j in zip(raman_photon_train.photon_counts, raman_photon_train.time_offsets):

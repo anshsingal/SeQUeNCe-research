@@ -318,7 +318,7 @@ class ParametricSource(Entity):
         # signal_pulse = [0]*num_photon_pairs
         # idler_pulse = [0]*num_photon_pairs
         
-        num_photon_pairs = np.random.poisson(self.mean_photon_num, (int(self.batch_size), 1))
+        
         # print("num_photon_pairs produced:",  num_photon_pairs)
         # if num_photon_pairs == 0:
         #     self.transmit_time = max(self.transmit_time, self.timeline.now()) + self.pulse_separation + self.pulse_width
@@ -337,7 +337,7 @@ class ParametricSource(Entity):
         #     print("photons sent:", i, "at", j)
         
 
-        process = Process(self, "emit", [num_photon_pairs])
+        process = Process(self, "emit", [])
         event = Event(signal_emit_time, process)
         self.own.timeline.schedule(event)
         
@@ -364,7 +364,8 @@ class ParametricSource(Entity):
 
         return signal_emit_time + self.batch_size * (self.pulse_separation + self.pulse_width)
 
-    def emit(self, num_photon_pairs):
+    def emit(self):
+        num_photon_pairs = np.random.poisson(self.mean_photon_num, (int(self.batch_size), 1))
         signal_pulse_train = PulseTrain(num_photon_pairs, self.pulse_width, self.pulse_separation, self.wavelength)
         idler_pulse_train = copy(signal_pulse_train)
         # print("initial time offsets", signal_pulse_train.time_offsets)
@@ -373,8 +374,8 @@ class ParametricSource(Entity):
         idler_pulse_window = PulseWindow(self.pulse_window_ID)
         self.pulse_window_ID += 1 
 
-        signal_pulse_window.trains.append(signal_pulse_train)
-        idler_pulse_window.trains.append(idler_pulse_train)
+        signal_pulse_window.source_train.append(signal_pulse_train)
+        idler_pulse_window.source_train.append(idler_pulse_train)
 
         self.own.send_qubit(self.signal_receiver, signal_pulse_window)
         self.own.send_qubit(self.idler_receiver, idler_pulse_window)

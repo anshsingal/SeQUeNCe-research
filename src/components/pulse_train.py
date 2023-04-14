@@ -14,7 +14,10 @@ from ..utils.quantum_state import QuantumState
 
 class PulseWindow():
     def __init__(self, ID):
-        self.trains = []
+        # self.trains = []
+        self.source_train = []
+        self.noise_train = []
+        self.other_trains = []
         self.ID = ID
 
 class PulseTrain():
