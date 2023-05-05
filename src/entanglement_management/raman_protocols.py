@@ -1,4 +1,3 @@
-# from src.topology.node import Node
 from src.protocol import Protocol
 from src.message import Message
 from src.kernel.event import Event
@@ -23,15 +22,16 @@ class ExpMsg(Message):
             self.last_emit_time = kwargs.get("last_emit_time")
 
 class RamanTestSender(Protocol):
+    """ Sender's protocol"""
     def __init__(self, own, num_iterations, clock_power, narrow_band_filter_bandwidth):
         self.own = own
         self.num_iterations = num_iterations
         self.clock_power = clock_power
         self.narrow_band_filter_bandwidth = narrow_band_filter_bandwidth
-        # own.protocols.append(self)
-        # self.other_nodes = other_nodes
+
 
     def start(self):
+        """ Starts the protocol by scheduling the emit calls. """
         self.own.qchannels[self.own.signal_receiver].start_clock(self.clock_power, self.narrow_band_filter_bandwidth)
 
         for i in range(self.num_iterations):
@@ -53,16 +53,12 @@ class RamanTestSender(Protocol):
 
 
 class RamanTestReceiver(Protocol):
+    """ Protocol at the receiver's end """
     def __init__(self, signal_node, idler_node, other_node: str, pulse_separation):
-        # signal_node.protocols.append(self)
-        # idler_node.protocols.append(self)
         self.signal_node = signal_node
         self.idler_node = idler_node
         self.other_node = other_node
-        # self.first_detection = True
-        # self.first_detection_time = 0
         self.coincidence_times = []
-        # self.stop_receiving = False
         self.last_detection = 0
 
         self.half_hist_bin_width = int(pulse_separation/20)
@@ -72,49 +68,35 @@ class RamanTestReceiver(Protocol):
         self.idler_buffer = []
 
     def start(self):
-        # start clock and emissions
         pass
     
     def received_message(self, src: str, message: Message):
+        """ Message signalling the receiver to stop the process, effectively ending the experiment. Post processing is initialized in this step."""
         assert message.msg_type == ExpMsgType.STOP
-
 
         distance = message.distance
         last_emit_time = message.last_emit_time
 
         stop_time = last_emit_time + 5*distance/(3*10**5) * 1e12
 
-        # print("stop time:", stop_time, "distance:", distance)
-
         process = Process(self, "stop_sim_and_process", [self.half_hist_bin_width * self.num_hist_bins_half])
         event = Event(stop_time, process)
-        self.signal_node.timeline.schedule(event)
-
-
-        
-
-        # self.stop_receiving = True
-        # self.get_correlations(self.half_hist_bin_width * self.num_hist_bins_half)
-        
-        # n, bins, patches = plt.hist(self.coincidence_times, range(-self.half_hist_bin_width * self.num_hist_bins_half, self.half_hist_bin_width * self.num_hist_bins_half, self.half_hist_bin_width))# , range(-28125, 28126, 625)
-        # plt.yscale('log')
-        # plt.show()
-        
+        self.signal_node.timeline.schedule(event)        
         
 
     def stop_sim_and_process(self, hist_width):
+        """This is the post processing step"""
         self.signal_node.timeline.stop()
-
-        # return # Not doing data processing
 
         print("stopped sim and starting processing")
         
+
+        # Call the detector files to start post-processing them. 
         self.signal_buffer = self.signal_node.detector.log_file
         self.idler_buffer = self.idler_node.detector.log_file
         
         self.signal_dead_time = self.signal_node.detector.dead_time
         self.idler_dead_time = self.idler_node.detector.dead_time
-        # print("detector processing step")
         
         prev_signal_detections = np.array([])
         prev_idler_detections = np.array([])
@@ -122,20 +104,14 @@ class RamanTestReceiver(Protocol):
         prev_signal_dead_time = 0
         prev_idler_dead_time = 0
 
+        # This segment removes the dead time detections (not handled during actual detection) and sorts the detections based on arrival time. 
         for i in sorted(map(int, self.signal_buffer)):
             print("sorting window", i)    
-            # print("length of signal buffer:", len(self.signal_buffer[str(i)][:]), "idler_buffer:", len(self.idler_buffer[str(i)][:]))
             signal_buffer, prev_signal_dead_time = self.sort_remove_dead_counts(self.signal_buffer[str(i)][:], self.signal_dead_time, prev_signal_dead_time)
             idler_buffer, prev_idler_dead_time = self.sort_remove_dead_counts(self.idler_buffer[str(i)][:], self.idler_dead_time, prev_idler_dead_time)
-            # print("length of dead_time removed signal buffer:", len(self.signal_buffer[str(i)][:]), "idler_buffer:", len(self.idler_buffer[str(i)][:]))
             print("sorted window", i)
 
-            # print("sorted signal_buffer:", signal_buffer)
-            # print("sorted idler buffer:", idler_buffer)
-
-            # print("sorted and deadcount removed signal buffer:", signal_buffer)
-            # print("sorted and deadcount removed idler buffer:", idler_buffer)
-
+            # The j_signal and j_idler are meant to account for the correlations between the detections in two different batches. 
             j_signal = 1
             j_idler = 1
             limit = signal_buffer[-1] - hist_width
@@ -144,20 +120,20 @@ class RamanTestReceiver(Protocol):
             while idler_buffer[-j_idler] > limit:
                 j_idler += 1
 
+            # Find the correlations between the idler and signal detections 
             self.get_correlations(np.append(prev_signal_detections, signal_buffer), np.append(prev_idler_detections, idler_buffer), hist_width, -j_signal, -j_idler)
 
             print("found correlations for window:", i)
 
+            # Storing he last j_signal and j_idler elements to find correlations with the next batch
             prev_signal_detections = signal_buffer[-j_signal:]
             prev_idler_detections = idler_buffer[-j_idler:]
 
 
-
-        # Uncomment this to turn on correlations again.
         self.get_correlations(prev_signal_detections, prev_idler_detections, hist_width, None, None)
 
-        # print("hist_width:", hist_width, "correlations:", self.coincidence_times)
 
+        # Plottig and writing to CAR file.
         plt.hist(self.coincidence_times, range(-hist_width,hist_width, self.half_hist_bin_width))# , range(-28125, 28126, 625)
         n, edges = np.histogram(self.coincidence_times, bins = int(2*hist_width/self.half_hist_bin_width), range = (-hist_width, hist_width))
         n = list(n)
@@ -181,31 +157,29 @@ class RamanTestReceiver(Protocol):
             
 
     def sort_remove_dead_counts(self, pulse_train, dead_time, prev_dead_time):
+        """ This method sorts the detections and removes the detections which are too close for the detector dead time"""
         
         def GPU_sort(pulse_train):
             GPU_pulse_train = cp.asarray(pulse_train)
             GPU_sorted_pulse_train = cp.sort(GPU_pulse_train)
             return cp.asnumpy(GPU_sorted_pulse_train)
 
+        # Sorting the array using a GPU for performance
         sorted_pulse_train = GPU_sort(pulse_train)
-        # print("done sorting")
-        # original_size = len(pulse_train)
 
+        # Remove the detections which lie in the dead time of the previous batch
         for i in range(len(pulse_train)):
             if pulse_train[i] > prev_dead_time:
                 break
         sorted_pulse_train = sorted_pulse_train[i:]
 
-        # print("starting dark count removal")
-        
-        # kept_detections = np.array([])
+        # Removal of dark counts is done by JIT compiling the actual method and executing the kernel.
         @jit(parallel = True, nopython = True)
         def remove_dark_counts(sorted_pulse_train):
             mask = np.ones(len(sorted_pulse_train))
             i = 0
             while i<=len(sorted_pulse_train)-1:
                 mask[i] = 0
-                # print("dark count removal:", i, len(sorted_pulse_train))
                 j = 1
                 while len(sorted_pulse_train) > i+j and sorted_pulse_train[i+j] <= sorted_pulse_train[i] + dead_time:
                     j = j+1
@@ -214,7 +188,6 @@ class RamanTestReceiver(Protocol):
 
         mask = remove_dark_counts(sorted_pulse_train)
         
-        # np.delete(sorted_pulse_train, indices_to_remove)
         sorted_pulse_train = ma.masked_array(sorted_pulse_train, mask = mask)
         out = sorted_pulse_train[~sorted_pulse_train.mask]
         print("done with dark count removal")
@@ -223,6 +196,8 @@ class RamanTestReceiver(Protocol):
 
 
     def get_correlations(self, signal_buffer, idler_buffer, hist_width, j_signal, j_idler):
+        """ Computes the correlations between the idler and signal detections. Assumed that the data is pre-processed."""
+
         last_detection_time = 0
         # You iterate over the signal buffer. You look for the idler detections ahead of the present 
         # signal detection which fall inside the hist_width
@@ -255,27 +230,3 @@ class RamanTestReceiver(Protocol):
                 if not i-signal_buffer[j] == 0:
                     self.coincidence_times.append(i-signal_buffer[j])
                 j += 1
-
-    # def get_correlations(self, signal_buffer, idler_buffer, hist_width, j_signal, j_idler):
-    #     last_detection_time = 0
-    #     for i in signal_buffer:
-    #         j = last_detection_time
-    #         while j < len(idler_buffer) and idler_buffer[j] < i:
-    #             j += 1
-    #         last_detection_time = j
-    #         while j < len(idler_buffer) and idler_buffer[j] < i + hist_width:
-    #             self.coincidence_times.append(idler_buffer[j] - i)
-    #             j += 1
-
-    #     last_detection_time = 0
-    #     for i in idler_buffer:
-    #         j = last_detection_time
-    #         while j < len(signal_buffer) and signal_buffer[j] < i:
-    #             j += 1
-    #         last_detection_time = j
-    #         while j < len(signal_buffer) and signal_buffer[j] < i + hist_width:
-    #             self.coincidence_times.append(i-signal_buffer[j])
-    #             j += 1    
-
-
-        

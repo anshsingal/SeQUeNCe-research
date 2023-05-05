@@ -14,23 +14,12 @@ from ..utils.quantum_state import QuantumState
 
 class PulseWindow():
     def __init__(self, ID):
-        # self.trains = []
         self.source_train = []
         self.noise_train = []
         self.other_trains = []
         self.ID = ID
 
 class PulseTrain():
-    """Class for a single photon.
-
-    Attributes:
-        name (str): label for photon instance.
-        wavelength (float): wavelength of photon (in nm).
-        location (Entity): current location of photon.
-        encoding_type (Dict[str, Any]): encoding type of photon (as defined in encoding module).
-        quantum_state (QuantumState): quantum state of photon.
-        is_null (bool): defines whether photon is real or a "ghost" photon (not detectable but used in memory encoding).
-    """
 
     def __init__(self, *args):
         if len(args) == 4:
@@ -39,10 +28,9 @@ class PulseTrain():
             self.init2(*args)
         else:
             pass
-            # Default constructor
 
     def init1(self, photon_counts, pulse_width, pulse_separation, wavelength, encoding_type=polarization):
-        """Constructor for the photon class."""
+        """Constructor for the pulse train based on pulse seperation, width and photon counts. Meant for the light source to use"""
 
         self.pulse_width = pulse_width
         self.pulse_separation = pulse_separation
@@ -52,29 +40,28 @@ class PulseTrain():
         self.pulse_count = len(photon_counts)
 
         self.time_offsets = np.arange(len(photon_counts)) * (self.pulse_separation + self.pulse_width)
-        # self.time_offsets = self.time_offsets
-
         self.train_duration = self.time_offsets[-1]  + self.pulse_separation + self.pulse_width
-
         self.remove_vaccum()
 
 
     def init2(self, time_offsets, train_duration, wavelength, encoding_type=polarization):
-        """Constructor for the photon class."""
+        """Generalized constrcutor where the calling function provides the relative time offsets between the photons in the train"""
 
         self.wavelength = wavelength
         self.encoding_type = encoding_type
-        # self.pulse_count = len(time_offsets)
-
         self.photon_counts = np.ones(len(time_offsets), dtype = "int")
-
         self.train_duration = train_duration
-
         self.time_offsets = time_offsets
 
 
 
     def copy(self):
+        """ Copies the pulse train's attributed to create an exact clone of the pulse train.
+        
+            Used by:
+                Light source to create the idler train based on the signal train 
+        
+        """
         copied_pulse_train = PulseTrain()
         copied_pulse_train.pulse_width = self.pulse_width
         copied_pulse_train.pulse_separation = self.pulse_separation
@@ -86,7 +73,6 @@ class PulseTrain():
         copied_pulse_train.train_duration = self.train_duration
 
         return copied_pulse_train
-
 
 
     
