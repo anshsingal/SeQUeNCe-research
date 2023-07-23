@@ -7,6 +7,7 @@ These classes should be connected to one or two entities, respectively, that are
 from typing import List
 
 from numpy import multiply, sqrt, zeros, kron, outer
+import numpy as np
 
 from .photon import Photon
 from ..kernel.entity import Entity
@@ -14,6 +15,8 @@ from ..kernel.event import Event
 from ..kernel.process import Process
 from ..utils.encoding import polarization, fock
 from ..utils import log
+from ..utils.encoding import absorptive
+from ..components.pulse_train import PulseTrain, PulseWindow
 
 
 class LightSource(Entity):
@@ -276,3 +279,76 @@ class SPDCSource(LightSource):
     def set_wavelength(self, wavelength1=1550, wavelength2=1550):
         """Method to set the wavelengths of photons emitted in two output modes."""
         self.wavelengths = [wavelength1, wavelength2]
+
+
+
+class PULSE_ParametricSource(Entity):
+    def __init__(self, own, name, timeline, receiver, wavelength,
+                 mean_photon_num, is_distinguishable, pulse_separation, batch_size, pulse_width = 50):
+        Entity.__init__(self, name, timeline)
+
+        self.own = own
+        self.wavelength = wavelength
+        self.mean_photon_num = mean_photon_num
+        self.receiver = receiver
+        # self.idler_receiver = idler_receiver
+        self.pulse_width = pulse_width # width of individual temporal mode in ps
+        self.pulse_separation = pulse_separation
+        self.transmit_time = self.own.timeline.now()
+        self.batch_size  = batch_size
+        self.pulse_window_ID = 0
+
+    def init(self):
+        pass
+
+    def schedule_emit(self):
+        """Method to schedule an event to start the emission process based on the time received from the optical channel.
+
+        Will schedule an event to emit the photon train registerd with the optical channel. 
+
+        """
+
+        # train_duration = (self.batch_size+1) * (self.pulse_width + self.pulse_separation)
+
+        # Schedules the qubit with the optical channel. 
+        emit_time = self.own.schedule_qubit(self.receiver, self.timeline.now())
+
+        print("emitting  now. Emission time is:", emit_time)
+        # idler_emit_time = self.own.schedule_qubit(self.idler_receiver, train_duration)
+
+        # assert signal_emit_time == idler_emit_time
+
+        process = Process(self, "emit", [])
+        event = Event(emit_time, process)
+        self.own.timeline.schedule(event)
+        
+        return emit_time
+
+    def emit(self):
+        """Generates the pulse train based on the pulse separation, width and batch size. This method is called when the qubit can be accepted by the channel 
+
+        Uses the Poisson process to find the number of photon pairs per pulse and create pulse trains which are stored in the pulse window. 
+
+        """
+        num_photon_pairs = np.random.poisson(self.mean_photon_num)
+        # signal_pulse_train = PulseTrain(num_photon_pairs, self.pulse_width, self.pulse_separation, self.wavelength)
+        # idler_pulse_train = signal_pulse_train.copy()
+
+        photon = Photon(None, self.timeline, wavelength = self.wavelength, location = self.own.name, 
+                        encoding_type=absorptive, quantum_state = num_photon_pairs, use_qm=True)
+        
+        print(f"Photon object created at {self.own.name}. sending over channel now. Photon number is:", photon.quantum_state)
+
+        # signal_pulse_window = PulseWindow(self.pulse_window_ID)
+        # idler_pulse_window = PulseWindow(self.pulse_window_ID)
+        # self.pulse_window_ID += 1 
+
+        # signal_pulse_window.source_train.append(signal_pulse_train)
+        # idler_pulse_window.source_train.append(idler_pulse_train)
+
+        # self.own.send_qubit(self.signal_receiver, signal_pulse_window)
+        self.own.send_qubit(self.receiver, photon)
+
+
+    def assign_another_receiver(self, receiver):
+        self.another_receiver = receiver

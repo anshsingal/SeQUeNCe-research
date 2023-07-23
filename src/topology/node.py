@@ -8,6 +8,7 @@ Node types can be used to collect all the necessary hardware and software for a 
 from math import inf
 from typing import TYPE_CHECKING, Any, List
 import numpy as np
+import heapq
 
 if TYPE_CHECKING:
     from ..kernel.timeline import Timeline
@@ -22,9 +23,9 @@ if TYPE_CHECKING:
 
 from ..kernel.entity import Entity
 from ..components.memory import MemoryArray
-from ..components.bsm import SingleAtomBSM
-from ..components.light_source import LightSource
-from ..components.detector import QSDetector, QSDetectorPolarization, QSDetectorTimeBin
+from ..components.bsm import SingleAtomBSM, PULSE_BSM
+from ..components.light_source import LightSource, PULSE_ParametricSource
+from ..components.detector import QSDetector, QSDetectorPolarization, QSDetectorTimeBin, PULSE_Detector
 from ..qkd.BB84 import BB84
 from ..qkd.cascade import Cascade
 from ..entanglement_management.generation import EntanglementGenerationB
@@ -32,6 +33,7 @@ from ..resource_management.resource_manager import ResourceManager
 from ..network_management.network_manager import NewNetworkManager
 from ..utils.encoding import *
 from ..utils import log
+from ..entanglement_management.raman_protocols import RamanTestSender
 
 
 class Node(Entity):
@@ -183,6 +185,95 @@ class Node(Entity):
             component.change_timeline(timeline)
         for cc in self.cchannels.values():
             cc.change_timeline(timeline)
+
+
+
+class raman_receiver_node(Node):
+    def __init__(self, name, timeline, sender_name, collection_probability, dark_count_rate, dead_time, time_resolution):
+        Node.__init__(self, name, timeline)
+        self.detector = PULSE_Detector(self, name, timeline, collection_probability, dark_count_rate, dead_time, time_resolution)
+        self.detector.owner = self
+    
+    def attach_detector_to_receiver(self, protocol):
+        self.detector.attach(protocol)
+        self.protocol = protocol
+
+    def receive_message(self, src: str, msg: "Message"):
+        self.protocol.received_message(src, msg)
+
+    def receive_qubit(self, src, qubit):
+        self.detector.get(qubit)
+
+class raman_sender_node(Node):
+    def __init__(self, name, timeline, num_iterations, clock_power, narrow_band_filter_bandwidth, wavelength, mean_photon_num, is_distinguishable, pulse_separation, batch_size, pulse_width):
+        Node.__init__(self, name, timeline)
+        self.protocol = RamanTestSender(self, num_iterations, clock_power, narrow_band_filter_bandwidth)
+        self.wavelength = wavelength
+        self.mean_photon_num = mean_photon_num
+        self.is_distinguishable = is_distinguishable
+        self.pulse_separation = pulse_separation
+        self.batch_size = batch_size
+        self.pulse_width = pulse_width
+
+
+    def attach_lightsource_to_receivers(self, receiver):
+        self.parametric_source = PULSE_ParametricSource(self, self.name+"LS", self.timeline, receiver, self.wavelength, self.mean_photon_num, self.is_distinguishable, self.pulse_separation, self.batch_size, self.pulse_width)
+        self.receiver = receiver
+        # self.parametric_source.own = self
+        # self.spdc_source.attach(self.protocol)
+
+
+
+
+
+class PULSE_BSMNode(Node):
+    """Bell state measurement node.
+
+    This node provides bell state measurement and the EntanglementGenerationB protocol for entanglement generation.
+    Creates a SingleAtomBSM object within local components.
+
+    Attributes:
+        name (str): label for node instance.
+        timeline (Timeline): timeline for simulation.
+        eg (EntanglementGenerationB): entanglement generation protocol instance.
+    """
+
+    def __init__(self, name: str, timeline: "Timeline", other_nodes: List[str],
+                 seed=None, component_templates=None) -> None:
+        """Constructor for BSM node.
+
+        Args:
+            name (str): name of node.
+            timeline (Timeline): simulation timeline.
+            other_nodes (List[str]): 2-member list of node names for adjacent quantum routers.
+        """
+
+        super().__init__(name, timeline, seed)
+        if not component_templates:
+            component_templates = {}
+
+        # create BSM object with optional args
+        bsm_name = name
+        # bsm_args = component_templates.get("SingleAtomBSM", {})
+        self.bsm = PULSE_BSM(bsm_name, timeline, detectors = ["signal", "idler"])
+        self.bsm.owner = self
+        # self.eg = EntanglementGenerationB(self, "{}_eg".format(name), other_nodes)
+        # bsm.attach(self.eg)
+
+    def attach_detector_to_receiver(self, protocol):
+        self.bsm.attach(protocol)
+        self.protocol = protocol
+
+    def receive_message(self, src: str, msg: "Message"):
+        self.protocol.received_message(src, msg)
+
+    def receive_qubit(self, src, qubit):
+        self.bsm.get(qubit)
+
+    def internal_notification(self, future_time):
+        heapq.heappush(self.bsm.scheduled_pulses, future_time)
+        
+
 
 
 class BSMNode(Node):

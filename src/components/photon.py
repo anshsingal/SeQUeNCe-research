@@ -115,6 +115,7 @@ class Photon:
         self.quantum_state.random_noise(rng)
 
     def set_state(self, state):
+        print("use_qm:", self.use_qm)
         if self.use_qm:
             qm = self.timeline.quantum_manager
             all_keys = qm.get(self.quantum_state).keys

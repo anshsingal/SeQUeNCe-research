@@ -6,6 +6,9 @@ Also defined is a function to automatically construct a BSM of a specified type.
 
 from abc import abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, List
+import numpy as np
+import numpy.ma as ma
+import heapq
 
 if TYPE_CHECKING:
     from ..kernel.quantum_manager import QuantumManager
@@ -14,7 +17,7 @@ if TYPE_CHECKING:
 from numpy import outer, add, zeros, array_equal
 
 from .circuit import Circuit
-from .detector import Detector
+from .detector import PULSE_Detector, Detector
 from .photon import Photon
 from ..kernel.entity import Entity
 from ..kernel.event import Event
@@ -22,6 +25,7 @@ from ..kernel.process import Process
 from ..kernel.quantum_manager import KET_STATE_FORMALISM, DENSITY_MATRIX_FORMALISM
 from ..utils.encoding import *
 from ..utils import log
+from .pulse_train import PulseTrain
 
 
 def make_bsm(name, timeline, encoding_type='time_bin', phase_error=0, detectors=[]):
@@ -195,6 +199,133 @@ class BSM(Entity):
         """Updates parameters of attached detectors."""
         for detector in self.detectors:
             detector.__setattr__(arg_name, value)
+
+
+class PULSE_BSM(Entity):
+    def __init__(self, name, timeline, phase_error=0, detectors=None):
+        """Constructor for base BSM object.
+
+        Args:
+            name (str): name of the beamsplitter instance.
+            timeline (Timeline): simulation timeline.
+            phase_error (float): Phase error applied to polarization photons (default 0).
+            detectors (List[Dict[str, Any]]): List of parameters for attached detectors, in dictionary format (default []).
+        """
+
+        super().__init__(name+"BSM", timeline)
+        self.scheduled_pulses = []
+        heapq.heapify(self.scheduled_pulses)
+        self.pulses = []
+        # self.photon_arrival_time = 0
+        # self.resolution = None
+
+        self.detectors = []
+        if detectors is not None:
+            for i, d in enumerate(detectors):
+                if d is not None:
+                    detector = PULSE_Detector(self, "%s_%d" % (self.name, i), timeline)
+                    detector.attach(self)
+                    # detector.owner = self
+                else:
+                    detector = None
+                self.detectors.append(detector)
+
+    def init(self):
+        """Implementation of Entity interface (see base class)."""
+        pass
+        # get resolution
+        # self.resolution = max(d.time_resolution for d in self.detectors)
+
+        # self.photons = []
+        # self.photon_arrival_time = -1
+
+    def get(self, pulse, **kwargs):
+        """Method to receive a photon for measurement (abstract).
+
+        Arguments:
+            photon (Photon): photon to measure.
+        """        
+
+        if type(pulse) == PulseTrain:
+            detector_number = np.random.choice([0,1], len(pulse.photon_counts))
+            masked_photon_counts = ma.masked_array(pulse.photon_counts, mask = detector_number)
+            masked_time_offsets = ma.masked_array(pulse.time_offsets, mask = detector_number)
+            
+            detector_0_pulse_train = PulseTrain()
+            detector_0_pulse_train.time_offsets = masked_time_offsets[masked_time_offsets.mask]
+            detector_0_pulse_train.photon_counts = masked_photon_counts[masked_photon_counts.mask]
+            
+            detector_1_pulse_train = PulseTrain()
+            detector_1_pulse_train.time_offsets = masked_time_offsets[~masked_time_offsets.mask]
+            detector_1_pulse_train.photon_counts = masked_photon_counts[~masked_photon_counts.mask]
+            
+            self.detectors[0].schedule_arrivals(detector_0_pulse_train)
+            self.detectors[1].schedule_arrivals(detector_1_pulse_train)
+        
+        else:
+            assert self.timeline.now() == heapq.heappop(self.scheduled_pulses)
+            
+            if len(self.scheduled_pulses) == 0 and len(self.pulses) == 0:
+                print("Both lists were empty. Moving forward with processing pulse.")
+            
+            elif len(self.scheduled_pulses) == 0:
+                print("Both photons at same time have been detected. proceeding with measurement.")
+            
+            else:
+                if self.scheduled_pulses[0] == self.timeline.now():
+                    print("There is another photon scheduled for the same time. Moving on")
+                    self.pulses.append(pulse)
+                    return
+                # Else, continue processing the pulse for detection.
+                
+
+            self.pulses.append(pulse)
+
+
+            if len(self.pulses) == 1:
+                detector_num = self.get_generator().choice([0, 1])
+                self.detectors[detector_num].get(self.pulses[0])
+            elif len(self.pulses) == 2:
+                print("processing interference")
+                if self.pulses[0].quantum_state == self.pulses[1].quantum_state:
+                    print("Hong Ou Mandel detected")
+                    detector_num = self.get_generator().choice([0, 1])
+                    self.detectors[detector_num].get(self.pulses[0])
+                    self.detectors[detector_num].get(self.pulses[1])
+                else:
+                    detector_nums = np.random.choice([0, 1], 2)
+                    self.detectors[detector_nums[0]].get(self.pulses[0])
+                    self.detectors[detector_nums[1]].get(self.pulses[1])
+
+            # Check the photon locations. 
+            #   If the locations are legitimate quantum routers, check the photon numbers to interfere the pulses.
+            #   Else, simply select detectors for the detecton to occur.
+            # locations = {"qr" : [], "channel" : []}
+            # for pulse in self.pulses:
+            #     if pulse.location == "Channel":
+            #         locations["channel"] += 1
+            #     else:
+            #         locations["qr"].append(pulse.num_photons)
+
+            # Compare photon numbers from quantum routers. We assume that there are just two pulses that came from actual quantum routers.
+            # if len(locations["qr"]) == 2:
+            #     if locations["qr"][0] == locations["qr"][1]:
+            #         detector_num = self.get_generator().choice([0, 1])
+            #         self.detectors[detector_num].get()
+            #     else:
+            #         detector_num = self.get_generator().choice([0, 1])
+            #         self.detectors[detector_num].get()
+            #         detector_num = self.get_generator().choice([0, 1])
+            #         self.detectors[detector_num].get()
+
+
+            # noisy_detections = np.random.choice([0,1], locations["channel"])
+            # for i in range(): 
+            #     np.random
+
+
+
+
 
 
 class PolarizationBSM(BSM):
@@ -466,8 +597,8 @@ class SingleAtomBSM(BSM):
 
             log.logger.debug(self.name + " measured photons as {}, {}".format(meas0, meas1))
 
-            if meas0 ^ meas1:
-                detector_num = self.get_generator().choice([0, 1])
+            if meas0 ^ meas1: # XOR operator. This is 0 if both the detectors clicked and 1 otherwise.
+                detector_num = self.get_generator().choice([0, 1]) # Now that we know only one detector clicked, we find which detector clicked. 
                 if len(state0.keys) == 1:
                     # if we're in stage 1: we set state to psi+/psi- to mark the
                     # first triggered detector

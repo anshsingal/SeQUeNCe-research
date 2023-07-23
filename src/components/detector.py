@@ -10,6 +10,14 @@ from typing import TYPE_CHECKING, Any, Dict, List
 from numpy import eye, kron, exp, sqrt
 from scipy.linalg import fractional_matrix_power
 from math import factorial
+import numpy as np
+import cupy as cp
+from numba import jit
+import sys
+import numpy.ma as ma
+np.set_printoptions(threshold = sys.maxsize)
+np.set_printoptions(suppress=True)
+np.set_printoptions(linewidth=np.inf)
 
 if TYPE_CHECKING:
     from ..kernel.timeline import Timeline
@@ -23,6 +31,7 @@ from ..kernel.entity import Entity
 from ..kernel.event import Event
 from ..kernel.process import Process
 from ..utils.encoding import time_bin
+from ..components.pulse_train import PulseTrain
 
 
 class Detector(Entity):
@@ -482,10 +491,18 @@ class QSDetectorFockInterference(QSDetector):
         create1, destroy1, create2, destroy2 = self._generate_transformed_ladders()
 
         # for detector1 (index 0)
+        
+        # In effect, this is: 
+        #   -1^(i) * [ a_dagger^(i+1) @ a^(i+1) ] / (i+1)! 
+        # and, we sum this over all possible number of photons n in the truncation assumed. See paper. Formula used directly.  
         series_elem_list1 = [(-1)**i * fractional_matrix_power(create1, i+1).dot(
             fractional_matrix_power(destroy1, i+1)) / factorial(i+1) for i in range(truncation)]
+        
         povm1_1 = sum(series_elem_list1)
         povm0_1 = eye((truncation+1) ** 2) - povm1_1
+
+
+        
         # for detector2 (index 1)
         series_elem_list2 = [(-1)**i * fractional_matrix_power(create2, i+1).dot(
             fractional_matrix_power(destroy2,i+1)) / factorial(i+1) for i in range(truncation)]
@@ -606,3 +623,174 @@ class QSDetectorFockInterference(QSDetector):
     def set_phase(self, phase: float):
         self.phase = phase
         self._generate_povms()
+
+
+
+class PULSE_Detector(Entity):
+    """Pulse detector device."""
+
+    def __init__(self, own, name: str, timeline: "Timeline", collection_probability=0.2, dark_count_rate=100, dead_time=0,
+                 time_resolution=150):
+        Entity.__init__(self, name+"_detector", timeline)  # Detector is part of the QSDetector, and does not have its own name
+        self.own = own
+        self.collection_probability = collection_probability
+        self.dark_count_rate = dark_count_rate  # measured in 1/s
+        self.dead_time = dead_time  # measured in Hz
+        self.time_resolution = time_resolution  # measured in ps
+        self.next_detection_time = -1
+        self.detector_buffer = []
+        # self.log_file = h5py.File(f"{self.own.name}_buffer", "w")
+        self.index = 0
+        self.prev_dead_time = 0
+        with open(f"{self.own.name}_buffer.dat", "w") as fileID:
+            pass
+
+    def init(self):
+        """Implementation of Entity interface (see base class)."""
+        pass
+
+
+    def schedule_arrivals(self, pulse_train : PulseTrain):
+
+        print("Scheduling arrivals of Raman photons")
+
+        self.noise_pulse_train = pulse_train
+        loss_matrix = np.random.binomial(self.noise_pulse_train.photon_counts, 1-self.collection_probability)
+        self.noise_pulse_train.add_loss(loss_matrix)
+        process = Process(self, "get", [None, True])
+        for arrival_time in self.noise_pulse_train.time_offsets:
+            event = Event(self.timeline.now()+arrival_time, process)
+            self.timeline.schedule(event)
+
+
+    def get(self, pulse, noise = False) -> None:
+        """Method to receive a pulse window for measurement.
+        
+        """
+        if noise:
+            print("noisy photon was detected.")
+        else:
+            print("Qubit photon detected")
+        if self.timeline.now() > self.next_detection_time:
+            print("we are within detection window")
+            if not noise and np.random.binomial(pulse.quantum_state, self.collection_probability) < 0:
+                return
+            print("processing detection at", self.timeline.now())
+            self.next_detection_time = self.timeline.now() + self.dead_time
+            self.notify({"time": self.timeline.now()})
+            
+        # for pulse_train in pulse_window.source_train:
+        #     loss_matrix = np.random.binomial(pulse_train.photon_counts, 1-self.collection_probability)
+        #     pulse_train.add_loss(loss_matrix)
+
+        # # Add dark counts and send the data to be stored on the disk
+        # dark_counts_pulse_train = self.add_dark_count(pulse_window.source_train[0].train_duration)
+        # pulse_window.noise_train.append(dark_counts_pulse_train)
+        # self.add_to_detector_buffer(pulse_window)
+
+
+    # def add_to_detector_buffer(self, pulse_window):
+    #     """ This method saves the data received from the detector to the disk to be post process later"""
+    #     now = self.timeline.now()
+    #     temp_detector = np.array([])
+
+    #     for pulse_train in pulse_window.source_train:
+    #         temp_detector = np.append(temp_detector, now + pulse_train.time_offsets)
+
+    #     for pulse_train in pulse_window.noise_train:
+    #         temp_detector = np.append(temp_detector, now + pulse_train.time_offsets)
+
+    #     for pulse_train in pulse_window.other_trains:
+    #         temp_detector = np.append(temp_detector, now + pulse_train.time_offsets)
+            
+    #     # print("sorting window", i)  
+    #     # print("pulse train length: ", len(temp_detector))  
+    #     temp_detector, self.prev_dead_time = self.sort_remove_dead_counts(temp_detector, self.dead_time, self.prev_dead_time)
+    #     # idler_buffer, prev_idler_dead_time = self.sort_remove_dead_counts(self.idler_buffer[str(i)][:], self.idler_dead_time, prev_idler_dead_time)
+    #     # print("sorted window", i)
+    #     # print("dead time removal done")
+
+    #     # print("Last detection:", temp_detector[-1])
+    #     # print(type(temp_detector[-1]))
+
+    #     if self.own.name == "idler_receiver":
+    #         # print("pulse window ID", pulse_window.ID)
+    #         print("type of arrival times:", type(temp_detector[0]))
+    #         print("idler arrivals:", len(temp_detector))
+    #         print(temp_detector)
+
+    #     # self.log_file.create_dataset(f"{pulse_window.ID}", data = temp_detector)
+    #     with open(f"{self.own.name}_buffer.dat", "ab+") as fileID:
+    #         fileID.write(temp_detector.data)
+    #     if self.own.name == "signal_receiver":
+    #         print("pulse window ID", pulse_window.ID)
+
+
+
+    def add_dark_count(self, duration) -> None:
+        """Method to schedule false positive detection events.
+
+        Events are scheduled as a Poisson process.
+
+        """
+        net_rate = (self.dark_count_rate/1e12) * duration
+        num_photon_pairs = np.random.poisson(lam = net_rate)
+        if num_photon_pairs == 0:
+            return PulseTrain(np.array([]), duration, None)
+        last_arrival = duration + 1
+        while last_arrival > duration:
+            last_arrival = np.random.gamma(shape = num_photon_pairs, scale = 1e12/self.dark_count_rate)
+
+        arrival_times = np.random.rand(num_photon_pairs - 1) * duration
+        arrival_times = np.append(arrival_times, [int(last_arrival)])
+        return PulseTrain(arrival_times, duration, None)
+
+
+              
+
+    def sort_remove_dead_counts(self, pulse_train, dead_time, prev_dead_time):
+        """ This method sorts the detections and removes the detections which are too close for the detector dead time"""
+        
+        def GPU_sort(pulse_train):
+            GPU_pulse_train = cp.asarray(pulse_train)
+            GPU_sorted_pulse_train = cp.sort(GPU_pulse_train)
+            return cp.asnumpy(GPU_sorted_pulse_train)
+
+        # Sorting the array using a GPU for performance. Intsead of sorting this, we can merge this using parallelised algorithms
+        sorted_pulse_train = GPU_sort(pulse_train)
+
+        # Remove the detections which lie in the dead time of the previous batch
+        i = 0
+        for i in range(len(pulse_train)):
+            if pulse_train[i] > prev_dead_time:
+                break
+        sorted_pulse_train = sorted_pulse_train[i:]
+
+        # Removal of dark counts is done by JIT compiling the actual method and executing the kernel.
+        @jit(parallel = True, nopython = True)
+        def remove_dark_counts(sorted_pulse_train):
+            mask = np.ones(len(sorted_pulse_train))
+            i = 0
+            while i<=len(sorted_pulse_train)-1:
+                mask[i] = 0
+                j = 1
+                while len(sorted_pulse_train) > i+j and sorted_pulse_train[i+j] <= sorted_pulse_train[i] + dead_time:
+                    j = j+1
+                i = i + j
+            return mask
+
+        mask = remove_dark_counts(sorted_pulse_train)
+        
+        sorted_pulse_train = ma.masked_array(sorted_pulse_train, mask = mask)
+        out = sorted_pulse_train[~sorted_pulse_train.mask]
+        # print("done with dark count removal")
+        return out, out[-1] + dead_time
+
+
+
+
+    def notify(self, info: Dict[str, Any]):
+        print("notification at", info, "at time:", self.timeline.now())
+        """Custom notify function (calls `trigger` method)."""
+        # for observer in self._observers:
+        #     observer.trigger(self, info)

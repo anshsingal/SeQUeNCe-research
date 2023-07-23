@@ -7,17 +7,19 @@ OpticalChannels must be attached to nodes on both ends.
 
 import heapq as hq
 from typing import TYPE_CHECKING
+import numpy as np
 
 if TYPE_CHECKING:
     from ..kernel.timeline import Timeline
     from ..topology.node import Node
-    from ..components.photon import Photon
     from ..message import Message
 
+from ..components.photon import Photon
 from ..kernel.entity import Entity
 from ..kernel.event import Event
 from ..kernel.process import Process
 from ..utils import log
+from ..components.pulse_train import PulseTrain
 
 
 class OpticalChannel(Entity):
@@ -62,6 +64,197 @@ class OpticalChannel(Entity):
 
     def set_distance(self, distance: int) -> None:
         self.distance = distance
+
+
+class PULSE_QuantumChannel(OpticalChannel):
+    """Optical channel for transmission of photons/qubits.
+
+    Attributes:
+        name (str): label for channel instance.
+        timeline (Timeline): timeline for simulation.
+        sender (Node): node at sending end of optical channel.
+        receiver (Node): node at receiving end of optical channel.
+        atteunuation (float): attenuation of the fiber (in dB/km).
+        distance (int): length of the fiber (in m).
+        polarization_fidelity (float): probability of no polarization error for a transmitted qubit.
+        light_speed (float): speed of light within the fiber (in m/ps).
+        loss (float): loss rate for transmitted photons (determined by attenuation).
+        delay (int): delay (in ps) of photon transmission (determined by light speed, distance).
+        max_rate (float): maximum rate of qubit transmission (in Hz).
+    """
+
+    def __init__(self, name: str, timeline: "Timeline", quantum_channel_attenuation: float, classical_channel_attenuation: float, distance: int, raman_coefficient, 
+                 polarization_fidelity=1, light_speed=3e8, max_rate=1e12, quantum_channel_wavelength = 1536, classical_channel_wavelength = 1610, window_size = 1e11, frequency=8e7):
+        """Constructor for Quatnum Channel class.
+
+        Args:
+            name (str): name of the quantum channel instance.
+            timeline (Timeline): simulation timeline.
+            quantum_channel_attenuation (float): loss rate in the quantum band of the optical fiber.
+            classical_channel_attenuation (float): loss rate in the classical band of the optical fiber.
+            distance (int): length of fiber (in km).
+            raman_coefficient (float): Raman coefficient of the fiber
+            polarization_fidelity (float): probability of no polarization error for a transmitted qubit (default 1).
+            light_speed (float): speed of light within the fiber (in m/ps) (default 2e-4).
+            max_rate (float): maximum max_rate of qubit transmission (in Hz) (default 8e7).
+            quantum_channel_wavelength (int): wavelength of the quantum communication band.
+            classical_channel_wavelength (int): wavelength of the classical communication band.
+        """
+
+        super().__init__(name, timeline, quantum_channel_attenuation, distance, polarization_fidelity, light_speed)
+        self.quantum_channel_attenuation = quantum_channel_attenuation
+        self.classical_channel_attenuation = classical_channel_attenuation
+        self.quantum_channel_wavelength = quantum_channel_wavelength
+        self.classical_channel_wavelength = classical_channel_wavelength
+        self.raman_coefficient = raman_coefficient
+        self.delay = 0
+        self.loss = 1
+        self.max_rate = max_rate  # maximum rate for sending qubits (measured in Hz)
+        self.send_bins = []
+        self.earliest_available_time = 0
+        self.record_raman_photons_start = None
+        self.clock_running = False
+        self.frequency = frequency 
+        self.window_size = window_size
+        
+
+    def init(self) -> None:
+        """Implementation of Entity interface (see base class)."""
+        self.delay = round((self.distance*1000 / self.light_speed) * 1e12)
+        self.loss = self.attenuation * self.distance
+
+    def set_ends(self, sender: "Node", receiver: str) -> None:
+        """Method to set endpoints for the quantum channel.
+
+        This must be performed before transmission.
+
+        Args:
+            sender (Node): node sending qubits.
+            receiver (str): name of node receiving qubits.
+        """
+        self.sender = sender
+        self.receiver = receiver
+        sender.assign_qchannel(self, receiver)
+
+    def start_clock(self, clock_power, narrow_band_filter_bandwidth):
+        """ Starts the add_raman_photons process """
+        self.clock_running = True
+        self.record_raman_photons_start = self.timeline.now()
+        self.clock_power = clock_power
+        self.narrow_band_filter_bandwidth = narrow_band_filter_bandwidth
+        self.scheduled_raman_train = 0
+        self.add_raman_train()
+
+
+    def add_raman_photons(self):
+        """ adds a photon train of noisy photons scattered from the classical band into the quantum band."""
+
+        h = 6.62607015 * 10**(-34)
+        c = 3 * 10**8
+
+        raman_power = np.abs(self.clock_power * self.raman_coefficient * self.narrow_band_filter_bandwidth * (np.exp(-self.attenuation * self.distance) - np.exp(-self.classical_channel_attenuation * self.distance)) / (self.attenuation - self.classical_channel_attenuation))
+        raman_energy = raman_power * self.window_size/1e12
+        num_photons_added = int(raman_energy / (h * c / self.quantum_channel_wavelength))
+
+        print("Raman photosns added", num_photons_added)
+
+        photon_generation_times = np.random.rand(num_photons_added) * self.window_size
+
+        return PulseTrain(photon_generation_times, self.window_size, self.quantum_channel_wavelength)
+
+    def add_raman_train(self):
+        if self.clock_running:
+            print("scheduling Raman photon detection at", self.name)
+            raman_photon_train = self.add_raman_photons()
+            
+            process = Process(self.receiver, "receive_qubit", [self.sender.name, raman_photon_train])
+            event = Event(self.timeline.now(), process)
+            self.timeline.schedule(event)
+
+            self.scheduled_raman_train += self.window_size
+
+            process = Process(self, "add_raman_train", [])
+            event = Event(self.scheduled_raman_train, process)
+            self.timeline.schedule(event)
+
+
+            
+        
+            
+            # pulse_window.noise_train.append(raman_photon_train)
+
+
+    def transmit(self, photon: Photon, source: "Node") -> None:
+        """Method to transmit photon-encoded qubits.
+
+        Args:
+            qubit (Photon): photon to be transmitted.
+            source (Node): source node sending the qubit.
+
+        Side Effects:
+            Receiver node may receive the qubit (via the `receive_qubit` method).
+        """
+
+        assert self.delay != 0 and self.loss != 1, "QuantumChannel init() function has not been run for {}".format(self.name)
+        # assert source == self.sender
+
+        if len(self.send_bins) > 0:
+            time = -1
+            while time < self.timeline.now():
+                time_bin = hq.heappop(self.send_bins)
+                time = int(time_bin * (1e12 / self.frequency))
+            assert time == self.timeline.now(), "qc {} transmit method called at invalid time".format(self.name)
+
+
+
+        transmitted_photon_number = np.random.binomial(photon.quantum_state, 1-self.loss)
+        # pulse_window.source_train[0].add_loss(loss_matrix)
+        photon.quantum_state = transmitted_photon_number
+        print(f"in optical channel {self.name}, sending photon with photon number", transmitted_photon_number)
+       
+        
+        future_time = self.timeline.now() + self.delay
+
+        process = Process(self.receiver, "receive_qubit", [source.name, photon])
+        event = Event(future_time, process)
+        self.timeline.schedule(event)
+
+        process = Process(self.receiver, "internal_notification", [future_time])
+        event = Event(self.timeline.now(), process)
+        self.timeline.schedule(event)
+
+
+    def schedule_transmit(self, min_time) -> int:
+        """Method to schedule a time for photon transmission.
+
+        Quantum Channels are limited by a frequency of transmission.
+        This method returns the next available time for transmitting a photon.
+        
+        Args:
+            min_time (int): minimum simulation time for transmission.
+
+        Returns:
+            int: simulation time for next available transmission window.
+        """
+
+        # TODO: move this to node?
+
+        min_time = self.timeline.now()
+        time_bin = min_time * (self.frequency / 1e12)
+        if time_bin - int(time_bin) > 0.00001:
+            time_bin = int(time_bin) + 1
+        else:
+            time_bin = int(time_bin)
+
+        # find earliest available time bin
+        while time_bin in self.send_bins:
+            time_bin += 1
+        hq.heappush(self.send_bins, time_bin)
+
+        # calculate time
+        time = int(time_bin * (1e12 / self.frequency))
+        return time
+
 
 
 class QuantumChannel(OpticalChannel):
@@ -124,6 +317,7 @@ class QuantumChannel(OpticalChannel):
         self.sender = sender
         self.receiver = receiver
         sender.assign_qchannel(self, receiver)
+
 
     def transmit(self, qubit: "Photon", source: "Node") -> None:
         """Method to transmit photon-encoded qubits.
