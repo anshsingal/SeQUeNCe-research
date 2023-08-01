@@ -6,7 +6,7 @@ from matplotlib import pyplot as plt
 from enum import Enum, auto
 import numpy as np
 import numpy.ma as ma
-import cupy as cp
+# import cupy as cp
 from numba import jit
 
 class ExpMsgType(Enum):    
@@ -32,13 +32,14 @@ class RamanTestSender(Protocol):
 
     def start(self):
         """ Starts the protocol by scheduling the emit calls. """
-        self.own.qchannels[self.own.signal_receiver].start_clock(self.clock_power, self.narrow_band_filter_bandwidth)
+        self.own.qchannels[self.own.signal_receiver].start_classical_communication()
+        self.own.cchannels[self.own.signal_receiver].start_classical_communication()
 
         for i in range(self.num_iterations):
             last_emit_time = self.emit_event()
 
         print("last emit time:", last_emit_time)
-        distance = self.own.qchannels["signal_receiver"].distance
+        distance = self.own.qchannels["signal_receiver_1"].distance
         new_msg = ExpMsg(ExpMsgType.STOP, self.own.signal_receiver, distance = distance, last_emit_time = last_emit_time)
 
         process = Process(self.own, "send_message", [self.own.signal_receiver, new_msg])
@@ -159,40 +160,39 @@ class RamanTestReceiver(Protocol):
     def sort_remove_dead_counts(self, pulse_train, dead_time, prev_dead_time):
         """ This method sorts the detections and removes the detections which are too close for the detector dead time"""
         
-        def GPU_sort(pulse_train):
-            GPU_pulse_train = cp.asarray(pulse_train)
-            GPU_sorted_pulse_train = cp.sort(GPU_pulse_train)
-            return cp.asnumpy(GPU_sorted_pulse_train)
+        # def GPU_sort(pulse_train):
+        #     GPU_pulse_train = cp.asarray(pulse_train)
+        #     GPU_sorted_pulse_train = cp.sort(GPU_pulse_train)
+        #     return cp.asnumpy(GPU_sorted_pulse_train)
 
         # Sorting the array using a GPU for performance
-        sorted_pulse_train = GPU_sort(pulse_train)
+        # sorted_pulse_train = GPU_sort(pulse_train)
 
         # Remove the detections which lie in the dead time of the previous batch
         for i in range(len(pulse_train)):
             if pulse_train[i] > prev_dead_time:
                 break
-        sorted_pulse_train = sorted_pulse_train[i:]
+        pulse_train = pulse_train[i:]
 
         # Removal of dark counts is done by JIT compiling the actual method and executing the kernel.
         @jit(parallel = True, nopython = True)
-        def remove_dark_counts(sorted_pulse_train):
-            mask = np.ones(len(sorted_pulse_train))
+        def remove_dark_counts(pulse_train):
+            mask = np.ones(len(pulse_train))
             i = 0
-            while i<=len(sorted_pulse_train)-1:
+            while i<=len(pulse_train)-1:
                 mask[i] = 0
                 j = 1
-                while len(sorted_pulse_train) > i+j and sorted_pulse_train[i+j] <= sorted_pulse_train[i] + dead_time:
+                while len(pulse_train) > i+j and pulse_train[i+j] <= pulse_train[i] + dead_time:
                     j = j+1
                 i = i + j
             return mask
 
-        mask = remove_dark_counts(sorted_pulse_train)
+        mask = remove_dark_counts(pulse_train)
         
-        sorted_pulse_train = ma.masked_array(sorted_pulse_train, mask = mask)
-        out = sorted_pulse_train[~sorted_pulse_train.mask]
+        pulse_train = ma.masked_array(pulse_train, mask = mask)
+        out = pulse_train[~pulse_train.mask]
         print("done with dark count removal")
         return out, out[-1] + dead_time
-
 
 
     def get_correlations(self, signal_buffer, idler_buffer, hist_width, j_signal, j_idler):

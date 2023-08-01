@@ -22,7 +22,7 @@ from ..kernel.event import Event
 from ..kernel.process import Process
 from ..utils.encoding import time_bin
 import time 
-import cupy as cp
+# import cupy as cp
 import h5py
 import sys
 np.set_printoptions(threshold = sys.maxsize)
@@ -65,6 +65,7 @@ class PulseDetector(Entity):
 
         # Add dark counts and send the data to be stired on the disk
         dark_counts_pulse_train = self.add_dark_count(pulse_window.source_train[0].train_duration)
+        # print("len of pulse_window -> noise_train:", len(pulse_window.noise_train))
         pulse_window.noise_train.append(dark_counts_pulse_train)
         self.add_to_detector_buffer(pulse_window)
 
@@ -74,19 +75,41 @@ class PulseDetector(Entity):
         now = self.timeline.now()
         temp_detector = np.array([])
 
-        for pulse_train in pulse_window.source_train:
-            temp_detector = np.append(temp_detector, now + pulse_train.time_offsets)
-
-        for pulse_train in pulse_window.noise_train:
-            temp_detector = np.append(temp_detector, now + pulse_train.time_offsets)
-
-        for pulse_train in pulse_window.other_trains:
-            temp_detector = np.append(temp_detector, now + pulse_train.time_offsets)
+        temp_detector = self.mergeArrays(now + pulse_window.source_train[0].time_offsets, now + pulse_window.noise_train[0].time_offsets)
+        if len(pulse_window.noise_train) > 1:
+            temp_detector = self.mergeArrays(temp_detector, now + pulse_window.noise_train[1].time_offsets)
 
         self.log_file.create_dataset(f"{pulse_window.ID}", data = temp_detector)
         if self.own.name == "signal_receiver":
             print("pulse window ID", pulse_window.ID)
 
+    def mergeArrays(self, arr1, arr2):
+        n1 = len(arr1)
+        n2 = len(arr2)
+        arr3 = [0] * (n1 + n2)
+        i = 0
+        j = 0
+        k = 0
+        # Traverse both array
+        while i < n1 and j < n2:
+            if arr1[i] < arr2[j]:
+                arr3[k] = arr1[i]
+                i += 1
+            else:
+                arr3[k] = arr2[j]
+                j += 1
+            k += 1
+    
+        while i < n1:
+            arr3[k] = arr1[i]
+            k += 1
+            i += 1
+
+        while j < n2:
+            arr3[k] = arr2[j]
+            k += 1
+            j += 1
+        return arr3
 
 
     def add_dark_count(self, duration) -> None:
@@ -105,7 +128,7 @@ class PulseDetector(Entity):
 
         arrival_times = np.random.rand(num_photon_pairs - 1) * duration
         arrival_times = np.append(arrival_times, [int(last_arrival)])
-        return PulseTrain(arrival_times, duration, None)
+        return PulseTrain(arrival_times, duration)
 
 
     def notify(self, info: Dict[str, Any]):
