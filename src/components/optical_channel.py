@@ -83,7 +83,7 @@ class QuantumChannel(OpticalChannel):
     """
 
     def __init__(self, name: str, timeline: "Timeline", quantum_channel_attenuation: float, classical_channel_attenuation: float, distance: int, raman_coefficient, 
-                 pulse_width, clock_power, narrow_band_filter_bandwidth,
+                 classical_communication_rate, classical_power0, classical_power1, narrow_band_filter_bandwidth,
                  polarization_fidelity=1, light_speed=3e8, max_rate=1e12, quantum_channel_wavelength = 1536, classical_channel_wavelength = 1610, ):
         """Constructor for Quatnum Channel class.
 
@@ -114,15 +114,16 @@ class QuantumChannel(OpticalChannel):
         self.earliest_available_time = 0
         self.record_raman_photons_start = None
         self.classical_communication = False
-        self.pulse_width = pulse_width
-        self.clock_power = clock_power
+        self.pulse_width = 1/classical_communication_rate
+        self.classical_power0 = classical_power0
+        self.classical_power1 = classical_power1
         self.narrow_band_filter_bandwidth = narrow_band_filter_bandwidth
 
 
     def init(self) -> None:
         """Implementation of Entity interface (see base class)."""
         self.delay = round((self.distance*1000 / self.light_speed) * 1e12)
-        self.loss = self.attenuation * self.distance
+        self.loss = 1-np.exp(-self.attenuation * self.distance)
 
     def set_ends(self, sender: "Node", receiver: str) -> None:
         """Method to set endpoints for the quantum channel.
@@ -147,8 +148,9 @@ class QuantumChannel(OpticalChannel):
         # Required parameters: Pulse width, to calculate raman power inside the pulse travelling through the fiber. 
         # This needs to be sent by the user. 
 
-        directions, pulse_times = self.sender.cchannels[self.receiver].get_classical_communication(train_duration)
-
+        # print("getting classical information")
+        directions, bits, classical_rate = self.sender.cchannels[self.receiver].get_classical_communication(train_duration)
+        # print("Got classical comm")
         # print("Pulse times are:", pulse_times)
 
         h = 6.62607015 * 10**(-34)
@@ -168,20 +170,34 @@ class QuantumChannel(OpticalChannel):
                                                    # seconds and then convert it in the space domain using the speed of 
                                                    # light and convert that distance to km. 
 
-        raman_power = np.abs(self.clock_power * self.raman_coefficient * self.narrow_band_filter_bandwidth * (np.exp(-self.attenuation * pulse_width) - np.exp(-self.classical_channel_attenuation * pulse_width)) / (self.attenuation - self.classical_channel_attenuation))
+        print("pulse_width:", pulse_width)
+
+
+
+        raman_power1 = np.abs(self.classical_power1 * self.raman_coefficient * self.narrow_band_filter_bandwidth * (np.exp(-self.attenuation * pulse_width) - np.exp(-self.classical_channel_attenuation * pulse_width)) / (self.attenuation - self.classical_channel_attenuation))
+        raman_energy1 = raman_power1 * window_size
+        mean_num_photons1 = (raman_energy1 / (h * c / self.quantum_channel_wavelength))
+        # print("mean_num_photons", mean_num_photons)
         
-        print("clock power:", self.clock_power, "narrow_band_filter_bandwidth", self.narrow_band_filter_bandwidth, "exponent:", np.exp(-self.attenuation * pulse_width) - np.exp(-self.classical_channel_attenuation * pulse_width))
+        raman_power0 = np.abs(self.classical_power0 * self.raman_coefficient * self.narrow_band_filter_bandwidth * (np.exp(-self.attenuation * pulse_width) - np.exp(-self.classical_channel_attenuation * pulse_width)) / (self.attenuation - self.classical_channel_attenuation))
+        raman_energy0 = raman_power0 * window_size
+        mean_num_photons0 = (raman_energy0 / (h * c / self.quantum_channel_wavelength))
         
-        raman_energy = raman_power * window_size
-        mean_num_photons = (raman_energy / (h * c / self.quantum_channel_wavelength))
-        print("mean_num_photons", mean_num_photons)
+        print("mean num photons:", mean_num_photons1, mean_num_photons0)
+        
         dAlpha = self.attenuation - self.classical_channel_attenuation
 
         detection_times = []
 
-        for pulse_time in pulse_times:
-            num_photons_added = np.random.poisson(mean_num_photons)
+        # print("bits are:", bits[0], type(bits[0]))
+
+        for pulse_number, bit in enumerate(bits):
+            if bit:
+                num_photons_added = np.random.poisson(mean_num_photons0)
+            else:
+                num_photons_added = np.random.poisson(mean_num_photons1)
             if num_photons_added > 0:
+                pulse_time = pulse_number / classical_rate
                 generated_locations = np.random.uniform(0, self.distance, num_photons_added)
                 probabilities_of_transmission = np.exp(-self.attenuation*self.distance)*(np.exp(dAlpha*generated_locations)-1) / (np.exp(-self.classical_channel_attenuation*self.distance) - np.exp(-self.attenuation*self.distance))
                 decision_array = np.random.binomial(1, probabilities_of_transmission, len(probabilities_of_transmission))
@@ -189,8 +205,9 @@ class QuantumChannel(OpticalChannel):
                 new_detections = np.array([(pulse_time + (location*1000 / c + (self.distance-location)*1000 / c) * 1e12) for decision, location in zip(decision_array, generated_locations) if decision])
                 detection_times.extend(new_detections)
 
-        print("detection times are:", detection_times)
+        # print("detection times are:", detection_times)
 
+        print("no. of photons added:", len(detection_times))
         return PulseTrain(detection_times, self.quantum_channel_wavelength)
         
         # print("scheduling receive qubit at quantum channel: receiver:", self.receiver)
@@ -374,7 +391,7 @@ class ClassicalChannel(OpticalChannel):
         # This helps us find the direction in which we need to find the Raman Scattering (forward or backward). 
         self.sender = sender
         self.receiver = receiver
-        print("classical channel receiver:", self.receiver)
+        # print("classical channel receiver:", self.receiver)
         sender.assign_cchannel(self, receiver)
 
 
@@ -405,7 +422,7 @@ class ClassicalChannel(OpticalChannel):
 
     def start_classical_communication(self):
         self.sender_index = re.findall(r'\d+', self.sender.name)[0]
-        print("PCAP file name:", "pcap_files/SeQUeNCe-0-%s.pcap" % (self.sender_index))
+        # print("PCAP file name:", "pcap_files/SeQUeNCe-0-%s.pcap" % (self.sender_index))
         self.pcap = PcapNgReader("pcap_files/SeQUeNCe-0-%s.pcap" % (self.sender_index))
         # self.get_classical_communication()
 
@@ -447,33 +464,54 @@ class ClassicalChannel(OpticalChannel):
 
     # <<<<<<<<<<<<<<< Alternative implementation >>>>>>>>>>>>>>>>>>>>>
     def get_classical_communication(self, time_window):
-        print("time window is:", time_window)
-        bit_timing_list = [] 
+        # print("time window is:", time_window)
+        # bit_timing_list1 = [] 
+        # bit_timing_list0 = [] 
+        bit_list = []
         directions = []
 
-        last_bit = time_window*self.classical_commnication_rate
+        last_bit = int(time_window*self.classical_commnication_rate)
         present_bit = 0
         time_up_flag = False
-
-        print("time at classical communication:", self.timeline.now())
+        # print("last_bit:", last_bit)
+        # print("time at classical communication:", self.timeline.now())
         while present_bit < last_bit:
-            print("self.bit_number", self.bit_number, "last_bit:", last_bit, "bit length:", len(self.bits))
-            for i in self.bits[self.bit_number:]:
-                self.bit_number += 1
-                if present_bit < last_bit:
-                    present_bit += 1
-                    if i:
-                        # print("i and type:", i, type(i))
-                        bit_timing_list.append(present_bit/self.classical_commnication_rate)  
-                else:
-                    time_up_flag = True
+
+
+            # for i in self.bits[self.bit_number:]:
+            #     self.bit_number += 1
+            #     if present_bit < last_bit:
+            #         present_bit += 1
+            #         if i:
+            #             bit_timing_list1.append(present_bit/self.classical_commnication_rate)  
+            #         else:
+            #             bit_timing_list0.append(present_bit/self.classical_commnication_rate)
+            #     else:
+            #         time_up_flag = True
+
+            if len(self.bits[int(self.bit_number):])+present_bit < last_bit:
+                bit_list.extend(self.bits[self.bit_number:])
+                present_bit += len(self.bits[self.bit_number:])
+                self.bit_number += len(self.bits[self.bit_number:])
+                # print("len of extend list:", len(self.bits))
+            else:
+                bit_list.extend(self.bits[:last_bit-present_bit])
+                present_bit += last_bit - present_bit
+                self.bit_number += last_bit - present_bit
+                time_up_flag = True
+
 
             if not time_up_flag:
                 packet = next(self.pcap, False)
                 # print("next packet is:", packet)
+
                 if not packet:
-                    break
+                    # For now, we just go through the same file again. You should actually break out of this loop
+                    # break 
+                    self.pcap = PcapNgReader("pcap_files/SeQUeNCe-0-%s.pcap" % (self.sender_index))
+                    continue
                 self.bit_number = 0
+                # print("bit_number in sec3:", self.bit_number)
                 
                 directions.append((packet.dst == "10.1.1.%s" % (int(self.sender_index)+1))) # This could be handled more elegenatly by keeping PCAP file names as IP addresses
                                                             # Note here that we are tagging only the packet's direction and not every bit. We cannot discern which "1" bit is
@@ -482,5 +520,5 @@ class ClassicalChannel(OpticalChannel):
         
         
         # print("bits covered:", present_bit)
-        
-        return directions, bit_timing_list
+        print("len of bit list:", len(bit_list))
+        return directions, bit_list, self.classical_commnication_rate

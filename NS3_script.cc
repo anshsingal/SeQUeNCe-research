@@ -102,6 +102,8 @@ main(int argc, char* argv[])
     CommandLine cmd(__FILE__);
     cmd.Parse(argc, argv);
 
+    printf("Launch power is: %d\n", atoi(argv[1]));
+
     // initialize the tx buffer.
     for (uint32_t i = 0; i < writeSize; ++i)
     {
@@ -192,7 +194,7 @@ main(int argc, char* argv[])
     // Ask for ASCII and pcap traces of network traffic
     // AsciiTraceHelper ascii;
     // p2p.EnablePAll(ascii.CreateFileStream("tcp-large-transfer.tr"));
-    p2p.EnablePcapAll("/home/anshsingal/work/CAR-SeQUeNCe-research/pcap_files/SeQUeNCe");
+    p2p.EnablePcapAll("/home/asingal/SeQUeNCe-research/pcap_files/SeQUeNCe");
 
     // Finally, set up the simulator to run.  The 1000 second hard limit is a
     // failsafe in case some change above causes the simulation to never end
