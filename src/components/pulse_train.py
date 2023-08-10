@@ -23,8 +23,9 @@ class PulseTrain():
     def __init__(self, *args):
         if len(args) == 4:
             self.init1(*args)
-        elif len(args) == 3:
+        elif len(args) == 2:
             self.init2(*args)
+
         else:
             pass
 
@@ -43,13 +44,12 @@ class PulseTrain():
         self.remove_vaccum()
 
 
-    def init2(self, time_offsets, train_duration, wavelength, encoding_type=polarization):
+    def init2(self, time_offsets, wavelength, encoding_type=polarization):
         """Generalized constrcutor where the calling function provides the relative time offsets between the photons in the train"""
 
         self.wavelength = wavelength
         self.encoding_type = encoding_type
         self.photon_counts = np.ones(len(time_offsets), dtype = "int")
-        self.train_duration = train_duration
         self.time_offsets = time_offsets
 
 

@@ -213,6 +213,7 @@ class PULSE_BSM(Entity):
         """
 
         super().__init__(name+"BSM", timeline)
+        print("BSM name:", self.name)
         self.scheduled_pulses = []
         heapq.heapify(self.scheduled_pulses)
         self.pulses = []

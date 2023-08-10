@@ -6,8 +6,8 @@ from matplotlib import pyplot as plt
 from enum import Enum, auto
 import numpy as np
 import numpy.ma as ma
-import cupy as cp
-from numba import jit
+# import cupy as cp
+# from numba import jit
 from datetime import datetime
 
 class ExpMsgType(Enum):    
@@ -31,10 +31,11 @@ class RamanTestSender(Protocol):
         self.narrow_band_filter_bandwidth = narrow_band_filter_bandwidth
 
 
-    def start(self, clock):
+    def start(self, classical_communication):
         """ Starts the protocol by scheduling the emit calls. """
-        if clock:
-            self.own.qchannels[self.own.receiver].start_clock(self.clock_power, self.narrow_band_filter_bandwidth)
+        if classical_communication:
+            self.own.cchannels[self.own.receiver].start_classical_communication()
+            # self.own.cchannels[self.own.receiver].get_classical_communication() # start_clock(self.clock_power, self.narrow_band_filter_bandwidth)
 
         ############## NOTE #####################################################        
         ############## Right now, the rate of communication is determined by the 
@@ -45,7 +46,7 @@ class RamanTestSender(Protocol):
             last_emit_time = self.emit_event()
 
         print("last emit time:", last_emit_time)
-        distance = self.own.qchannels["receiver"].distance
+        distance = self.own.qchannels[self.own.receiver].distance
         new_msg = ExpMsg(ExpMsgType.STOP, self.own.receiver, distance = distance, last_emit_time = last_emit_time)
 
         process = Process(self.own, "send_message", [self.own.receiver, new_msg])
@@ -102,10 +103,10 @@ class RamanTestReceiver(Protocol):
         
 
         # Call the detector files to start post-processing them.
-        with open("signal_receiver_buffer.dat", "rb") as fileID:
+        with open(self.BSM.bsm.detectors[0].name+"_buffer.dat", "rb") as fileID:
             self.signal_buffer = np.frombuffer(fileID.read())
 
-        with open("idler_receiver_buffer.dat", "rb") as fileID:
+        with open(self.BSM.bsm.detectors[1].name+"_buffer.dat", "rb") as fileID:
             self.idler_buffer = np.frombuffer(fileID.read()) 
 
 

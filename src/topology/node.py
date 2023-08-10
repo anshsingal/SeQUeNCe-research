@@ -9,6 +9,7 @@ from math import inf
 from typing import TYPE_CHECKING, Any, List
 import numpy as np
 import heapq
+from scapy.all import PcapNgReader, raw
 
 if TYPE_CHECKING:
     from ..kernel.timeline import Timeline
@@ -214,6 +215,9 @@ class raman_sender_node(Node):
         self.pulse_separation = pulse_separation
         self.batch_size = batch_size
         self.pulse_width = pulse_width
+        # self.node_index = re.findall(r'\d+', self.name)[0]
+        # self.packet_generator = PcapNgReader("SeQUeNCe-0-%s.pcap" % (self.node_index))
+        # self.packet_number = 0
 
 
     def attach_lightsource_to_receivers(self, receiver):
@@ -221,6 +225,8 @@ class raman_sender_node(Node):
         self.receiver = receiver
         # self.parametric_source.own = self
         # self.spdc_source.attach(self.protocol)
+
+
 
 
 

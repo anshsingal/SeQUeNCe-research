@@ -11,8 +11,8 @@ from numpy import eye, kron, exp, sqrt
 from scipy.linalg import fractional_matrix_power
 from math import factorial
 import numpy as np
-import cupy as cp
-from numba import jit
+# import cupy as cp
+# from numba import jit
 import sys
 import numpy.ma as ma
 np.set_printoptions(threshold = sys.maxsize)
@@ -642,7 +642,8 @@ class PULSE_Detector(Entity):
         # self.log_file = h5py.File(f"{self.own.name}_buffer", "w")
         self.index = 0
         self.prev_dead_time = 0
-        with open(f"{self.own.name}_buffer.dat", "w") as fileID:
+        print("detector owner name:", self.own.name)
+        with open(f"{self.name}_buffer.dat", "w") as fileID:
             pass
 
     def init(self):
