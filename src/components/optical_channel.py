@@ -83,7 +83,7 @@ class QuantumChannel(OpticalChannel):
     """
 
     def __init__(self, name: str, timeline: "Timeline", quantum_channel_attenuation: float, classical_channel_attenuation: float, distance: int, raman_coefficient, 
-                 classical_communication_rate, classical_power0, classical_power1, narrow_band_filter_bandwidth,
+                 classical_communication_rate, classical_powers, narrow_band_filter_bandwidth,
                  polarization_fidelity=1, light_speed=3e8, max_rate=1e12, quantum_channel_wavelength = 1536, classical_channel_wavelength = 1610, ):
         """Constructor for Quatnum Channel class.
 
@@ -115,9 +115,14 @@ class QuantumChannel(OpticalChannel):
         self.record_raman_photons_start = None
         self.classical_communication = False
         self.pulse_width = 1/classical_communication_rate
-        self.classical_power0 = classical_power0
-        self.classical_power1 = classical_power1
+        self.classical_powers = classical_powers
         self.narrow_band_filter_bandwidth = narrow_band_filter_bandwidth
+        self.remaining_bit_flag = False
+
+        self.state00 = BitArray([0,0])
+        self.state01 = BitArray([0,1])
+        self.state11 = BitArray([1,1])
+        self.state10 = BitArray([1,0])
 
 
     def init(self) -> None:
@@ -172,36 +177,52 @@ class QuantumChannel(OpticalChannel):
 
         print("pulse_width:", pulse_width)
 
+        raman_power = lambda classical_power: np.abs(classical_power * self.raman_coefficient * self.narrow_band_filter_bandwidth * (np.exp(-self.attenuation * pulse_width) - np.exp(-self.classical_channel_attenuation * pulse_width)) / (self.attenuation - self.classical_channel_attenuation))
 
-
-        raman_power1 = np.abs(self.classical_power1 * self.raman_coefficient * self.narrow_band_filter_bandwidth * (np.exp(-self.attenuation * pulse_width) - np.exp(-self.classical_channel_attenuation * pulse_width)) / (self.attenuation - self.classical_channel_attenuation))
-        raman_energy1 = raman_power1 * window_size
-        mean_num_photons1 = (raman_energy1 / (h * c / self.quantum_channel_wavelength))
-        # print("mean_num_photons", mean_num_photons)
-        
-        raman_power0 = np.abs(self.classical_power0 * self.raman_coefficient * self.narrow_band_filter_bandwidth * (np.exp(-self.attenuation * pulse_width) - np.exp(-self.classical_channel_attenuation * pulse_width)) / (self.attenuation - self.classical_channel_attenuation))
-        raman_energy0 = raman_power0 * window_size
-        mean_num_photons0 = (raman_energy0 / (h * c / self.quantum_channel_wavelength))
-        
-        print("mean num photons:", mean_num_photons1, mean_num_photons0)
+        # print("mean num photons:", mean_num_photons1, mean_num_photons0)
         
         dAlpha = self.attenuation - self.classical_channel_attenuation
 
         detection_times = []
 
+        if self.remaining_bit_flag:
+            bits.insert(0, self.remaining_bit)
+            self.remaining_bit_flag = False
+
         # print("bits are:", bits[0], type(bits[0]))
 
-        for pulse_number, bit in enumerate(bits):
-            if bit:
-                num_photons_added = np.random.poisson(mean_num_photons0)
-            else:
-                num_photons_added = np.random.poisson(mean_num_photons1)
+        # We are using natural bit ordering
+        for bit_number in range(0, len(bits), 2):
+            symbol = bits[bit_number : bit_number+2]
+            if symbol == self.state00:
+                # print("00 bit")
+                raman_energy = raman_power(self.classical_powers[0]) * window_size
+            elif symbol == self.state01:
+                # print("01 bit")
+                raman_energy = raman_power(self.classical_powers[1]) * window_size
+            elif symbol == self.state10:
+                # print("10 bit")
+                raman_energy = raman_power(self.classical_powers[2]) * window_size
+            elif symbol == self.state11:
+                # print("11 bit")
+                raman_energy = raman_power(self.classical_powers[3]) * window_size
+            elif len(symbol) < 2:
+                # print("1 bit remaining")
+                self.remaining_bit_flag = True
+                self.remaining_bit = symbol[0]
+                break
+
+            mean_num_photons = (raman_energy / (h * c / self.quantum_channel_wavelength))
+            num_photons_added = np.random.poisson(mean_num_photons)
+
+            symbol_number = bit_number/2
             if num_photons_added > 0:
-                pulse_time = pulse_number / classical_rate
+                pulse_time = symbol_number / (classical_rate/2)
                 generated_locations = np.random.uniform(0, self.distance, num_photons_added)
                 probabilities_of_transmission = np.exp(-self.attenuation*self.distance)*(np.exp(dAlpha*generated_locations)-1) / (np.exp(-self.classical_channel_attenuation*self.distance) - np.exp(-self.attenuation*self.distance))
                 decision_array = np.random.binomial(1, probabilities_of_transmission, len(probabilities_of_transmission))
                 # Need to find some reference for the spectrum of light in fiber optics to get the classical and quantum channel speeds of in the fiber. For now, using the same c for both. 
+                # Found the specifications of the refractive indices for the two bands on manufacturer websites. 
                 new_detections = np.array([(pulse_time + (location*1000 / c + (self.distance-location)*1000 / c) * 1e12) for decision, location in zip(decision_array, generated_locations) if decision])
                 detection_times.extend(new_detections)
 
@@ -423,7 +444,7 @@ class ClassicalChannel(OpticalChannel):
     def start_classical_communication(self):
         self.sender_index = re.findall(r'\d+', self.sender.name)[0]
         # print("PCAP file name:", "pcap_files/SeQUeNCe-0-%s.pcap" % (self.sender_index))
-        self.pcap = PcapNgReader("pcap_files/SeQUeNCe-0-%s.pcap" % (self.sender_index))
+        self.pcap = PcapNgReader("src/classical_communication/pcap_files/SeQUeNCe-0-%s.pcap" % (self.sender_index))
         # self.get_classical_communication()
 
     # The NS3 implementation would simply give us the packet data that needs to be communicated between the nodes in the network. The routing may also happen at NS3.
@@ -508,7 +529,7 @@ class ClassicalChannel(OpticalChannel):
                 if not packet:
                     # For now, we just go through the same file again. You should actually break out of this loop
                     # break 
-                    self.pcap = PcapNgReader("pcap_files/SeQUeNCe-0-%s.pcap" % (self.sender_index))
+                    self.pcap = PcapNgReader("src/classical_communication/pcap_files/SeQUeNCe-0-%s.pcap" % (self.sender_index))
                     continue
                 self.bit_number = 0
                 # print("bit_number in sec3:", self.bit_number)

@@ -164,9 +164,9 @@ class raman_receiver_node(Node):
         self.detector.get(qubit)
 
 class raman_sender_node(Node):
-    def __init__(self, name, timeline, num_iterations, clock_power, narrow_band_filter_bandwidth, wavelength, mean_photon_num, is_distinguishable, pulse_separation, batch_size, pulse_width):
+    def __init__(self, name, timeline, num_iterations, narrow_band_filter_bandwidth, wavelength, mean_photon_num, is_distinguishable, pulse_separation, batch_size, pulse_width):
         Node.__init__(self, name, timeline)
-        self.protocol = RamanTestSender(self, num_iterations, clock_power, narrow_band_filter_bandwidth)
+        self.protocol = RamanTestSender(self, num_iterations, narrow_band_filter_bandwidth)
         self.wavelength = wavelength
         self.mean_photon_num = mean_photon_num
         self.is_distinguishable = is_distinguishable
