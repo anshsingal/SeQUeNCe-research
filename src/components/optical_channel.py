@@ -11,6 +11,7 @@ import numpy as np
 import re
 from scapy.all import PcapNgReader, raw
 from bitstring import BitArray
+# import cupy as cp
 
 if TYPE_CHECKING:
     from ..kernel.timeline import Timeline
@@ -114,7 +115,7 @@ class QuantumChannel(OpticalChannel):
         self.earliest_available_time = 0
         self.record_raman_photons_start = None
         self.classical_communication = False
-        self.pulse_width = 1/classical_communication_rate
+        # self.pulse_width = 1/classical_communication_rate
         self.classical_powers = classical_powers
         self.narrow_band_filter_bandwidth = narrow_band_filter_bandwidth
         self.remaining_bit_flag = False
@@ -158,6 +159,8 @@ class QuantumChannel(OpticalChannel):
         # print("Got classical comm")
         # print("Pulse times are:", pulse_times)
 
+        symbol_rate = classical_rate/2
+
         h = 6.62607015 * 10**(-34)
         c = 3 * 10**8
         window_size = (self.distance * 1000 / c) # We are taking the distance to be in KM and hence, convert it to m first. Then,
@@ -171,13 +174,13 @@ class QuantumChannel(OpticalChannel):
         # else:
         #     print("Photon for False direction faced")
         
-        pulse_width = (self.pulse_width/1e12) * c / 1e3 # We get the pulse width in picoseconds. Hence, we convert it 
+        pulse_width = (1/(symbol_rate)/1e12) * c / 1e3 # We get the pulse width in picoseconds. Hence, we convert it 
                                                    # seconds and then convert it in the space domain using the speed of 
                                                    # light and convert that distance to km. 
 
         print("pulse_width:", pulse_width)
 
-        raman_power = lambda classical_power: np.abs(classical_power * self.raman_coefficient * self.narrow_band_filter_bandwidth * (np.exp(-self.attenuation * pulse_width) - np.exp(-self.classical_channel_attenuation * pulse_width)) / (self.attenuation - self.classical_channel_attenuation))
+        raman_power = lambda classical_power: np.abs(classical_power * self.raman_coefficient * self.narrow_band_filter_bandwidth * (np.exp(-self.attenuation * pulse_width) - np.exp(-self.classical_channel_attenuation * pulse_width)) / (self.classical_channel_attenuation - self.attenuation))
 
         # print("mean num photons:", mean_num_photons1, mean_num_photons0)
         
@@ -193,23 +196,26 @@ class QuantumChannel(OpticalChannel):
 
         # We are using natural bit ordering
         for bit_number in range(0, len(bits), 2):
-            symbol = bits[bit_number : bit_number+2]
-            if symbol == self.state00:
-                # print("00 bit")
-                raman_energy = raman_power(self.classical_powers[0]) * window_size
-            elif symbol == self.state01:
-                # print("01 bit")
-                raman_energy = raman_power(self.classical_powers[1]) * window_size
-            elif symbol == self.state10:
-                # print("10 bit")
-                raman_energy = raman_power(self.classical_powers[2]) * window_size
-            elif symbol == self.state11:
-                # print("11 bit")
-                raman_energy = raman_power(self.classical_powers[3]) * window_size
-            elif len(symbol) < 2:
+            # symbol = bits[bit_number : bit_number+2]
+            # if symbol == self.state00:
+            #     # print("00 bit")
+            #     raman_energy = raman_power(self.classical_powers[0]) * window_size
+            # elif symbol == self.state01:
+            #     # print("01 bit")
+            #     raman_energy = raman_power(self.classical_powers[1]) * window_size
+            # elif symbol == self.state10:
+            #     # print("10 bit")
+            #     raman_energy = raman_power(self.classical_powers[2]) * window_size
+            # elif symbol == self.state11:
+            #     # print("11 bit")
+            #     raman_energy = raman_power(self.classical_powers[3]) * window_size
+            try:
+                raman_energy = raman_power(self.classical_powers[bits[bit_number]*2+bits[bit_number+1]]) * window_size
+            except:
+            # if len(symbol) < 2:
                 # print("1 bit remaining")
                 self.remaining_bit_flag = True
-                self.remaining_bit = symbol[0]
+                self.remaining_bit = bits[bit_number]
                 break
 
             mean_num_photons = (raman_energy / (h * c / self.quantum_channel_wavelength))
@@ -217,7 +223,7 @@ class QuantumChannel(OpticalChannel):
 
             symbol_number = bit_number/2
             if num_photons_added > 0:
-                pulse_time = symbol_number / (classical_rate/2)
+                pulse_time = symbol_number / (symbol_rate)
                 generated_locations = np.random.uniform(0, self.distance, num_photons_added)
                 probabilities_of_transmission = np.exp(-self.attenuation*self.distance)*(np.exp(dAlpha*generated_locations)-1) / (np.exp(-self.classical_channel_attenuation*self.distance) - np.exp(-self.attenuation*self.distance))
                 decision_array = np.random.binomial(1, probabilities_of_transmission, len(probabilities_of_transmission))

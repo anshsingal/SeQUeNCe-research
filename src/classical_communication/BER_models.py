@@ -54,14 +54,14 @@ def calculate_BER_4PAM_noPreamplifier(classical_channel_attenuation, distance, B
     e = 1.6e-19
     RIN = 10**(RIN/10) # We receive the RIN in dB
     received_power = lambda power: power*np.exp(-classical_channel_attenuation*distance) 
-    print("received power:", 10*np.log10(received_power(avg_power*1e3)))
+    # print("received power:", 10*np.log10(received_power(avg_power*1e3)))
     current = lambda power: R * received_power(power)
     thermal_noise = 4*k_b*T*F_n*delta_f/R_L
     level_noise = lambda current: thermal_noise + 2*e*current*delta_f + RIN*(current**2)*delta_f
     # power_levels = [avg_power-OMA/2, avg_power-OMA/6, avg_power+OMA/6, avg_power+OMA/2]
     total_noise = sum([level_noise( current(power) ) for power in power_levels])
     rms_noise = np.sqrt(total_noise)
-    print("total_noise:", total_noise, "RMS noise:", rms_noise, "avg_current:", current(avg_power), "parameter:", current(avg_power)/(3*np.sqrt(2)*rms_noise))
+    # print("total_noise:", total_noise, "RMS noise:", rms_noise, "avg_current:", current(avg_power), "parameter:", current(avg_power)/(3*np.sqrt(2)*rms_noise))
     SER = (0.75)*(math.erfc(current(avg_power)/(3*np.sqrt(2)*rms_noise)))
     hamming_distance_natural = 4/3
     BER = hamming_distance_natural * SER/np.log2(4)

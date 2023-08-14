@@ -76,22 +76,22 @@ experimental_parameters = {
 
     # Clock parameters
     "avg_power": 1.5e-3, # avg_power is written in W
-    "OMA": 0.5, # OMA is written in dBm
+    "OMA": 3, # OMA is written in dBm
     "narrow_band_filter_bandwidth" : 0.03,
 }
 
 # BER = calculate_BER_amplified(10**(i/10) * 1e-3,  experimental_parameters["classical_channel_attenuation"], experimental_parameters["classical_channel_wavelength"], experimental_parameters["distance"]*10, experimental_parameters["classical_channel_rate"]*1e12)
 # os.system(f'cp NS3_script.cc /home/asingal/ns-3-allinone/ns-3-dev/scratch/SeQUeNCe.cc && /home/asingal/ns-3-allinone/ns-3-dev/ns3 run "SeQUeNCe.cc {i}"')
 
-num_repetitions = 1 # 3
-num_samples = 1 # 10
-params = np.linspace(5, 6, num_samples)
+num_repetitions = 3
+num_samples = 10
+params = np.linspace(1, 2, num_samples)
 
 try:
     CAR_Data = []
-    for i in [5]: # Assuming power randes from -3 dBm (= 10^((-3)/10) mW) to -1 dBm (= 10^((-1)/10) mW)
+    for i in params[2:]: # Assuming power randes from -3 dBm (= 10^((-3)/10) mW) to -1 dBm (= 10^((-1)/10) mW)
             # NOTE Here that we are using the amplified BER for very small distances and hence multipled the distance by 10
-        experimental_parameters["classical_communication_rate"] = 10**i / 1e12
+        experimental_parameters["avg_power"] = i*1e-3
         # ber = calculate_BER_APD(experimental_parameters["clock_power"], experimental_parameters["clock_power"]/10, experimental_parameters["classical_channel_attenuation"], experimental_parameters["distance"], experimental_parameters["classical_communication_rate"], G_m = 1)
         
         for j in range(num_repetitions):
