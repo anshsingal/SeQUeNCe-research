@@ -24,11 +24,11 @@ class ExpMsg(Message):
 
 class RamanTestSender(Protocol):
     """ Sender's protocol"""
-    def __init__(self, own, num_iterations, clock_power, narrow_band_filter_bandwidth):
+    def __init__(self, own, num_iterations):
         self.own = own
         self.num_iterations = num_iterations
-        self.clock_power = clock_power
-        self.narrow_band_filter_bandwidth = narrow_band_filter_bandwidth
+        # self.clock_power = clock_power
+        # self.narrow_band_filter_bandwidth = narrow_band_filter_bandwidth
 
 
     def start(self, classical_communication):

@@ -24,8 +24,8 @@ if TYPE_CHECKING:
 
 from ..kernel.entity import Entity
 from ..components.memory import MemoryArray
-from ..components.bsm import SingleAtomBSM, PULSE_BSM
-from ..components.light_source import LightSource, PULSE_ParametricSource
+from ..components.bsm import SingleAtomBSM, Noisy_BSM
+from ..components.light_source import LightSource, SPDCSource
 from ..components.detector import QSDetector, QSDetectorPolarization, QSDetectorTimeBin, PULSE_Detector
 from ..qkd.BB84 import BB84
 from ..qkd.cascade import Cascade
@@ -206,12 +206,10 @@ class raman_receiver_node(Node):
         self.detector.get(qubit)
 
 class raman_sender_node(Node):
-    def __init__(self, name, timeline, num_iterations, clock_power, narrow_band_filter_bandwidth, wavelength, mean_photon_num, is_distinguishable, pulse_separation, batch_size, pulse_width):
+    def __init__(self, name, timeline, num_iterations, mean_photon_num, pulse_separation, batch_size, pulse_width):
         Node.__init__(self, name, timeline)
-        self.protocol = RamanTestSender(self, num_iterations, clock_power, narrow_band_filter_bandwidth)
-        self.wavelength = wavelength
+        self.protocol = RamanTestSender(self, num_iterations)
         self.mean_photon_num = mean_photon_num
-        self.is_distinguishable = is_distinguishable
         self.pulse_separation = pulse_separation
         self.batch_size = batch_size
         self.pulse_width = pulse_width
@@ -221,7 +219,7 @@ class raman_sender_node(Node):
 
 
     def attach_lightsource_to_receivers(self, receiver):
-        self.parametric_source = PULSE_ParametricSource(self, self.name+"LS", self.timeline, receiver, self.wavelength, self.mean_photon_num, self.is_distinguishable, self.pulse_separation, self.batch_size, self.pulse_width)
+        self.parametric_source = SPDCSource(self, self.name+"LS", self.timeline, receiver, self.wavelength, self.mean_photon_num, self.pulse_separation, self.batch_size, self.pulse_width)
         self.receiver = receiver
         # self.parametric_source.own = self
         # self.spdc_source.attach(self.protocol)
@@ -232,7 +230,7 @@ class raman_sender_node(Node):
 
 
 
-class PULSE_BSMNode(Node):
+class Raman_BSMNode(Node):
     """Bell state measurement node.
 
     This node provides bell state measurement and the EntanglementGenerationB protocol for entanglement generation.

@@ -54,7 +54,7 @@ class Detector(Entity):
     _meas_circuit.measure(0)
 
     def __init__(self, name: str, timeline: "Timeline", efficiency=0.9, dark_count=0, count_rate=int(25e6),
-                 time_resolution=150):
+                 time_resolution=50000):
         Entity.__init__(self, name, timeline)  # Detector is part of the QSDetector, and does not have its own name
         self.efficiency = efficiency
         self.dark_count = dark_count  # measured in 1/s
@@ -124,11 +124,15 @@ class Detector(Entity):
         """
 
         now = self.timeline.now()
+        # print("recording measurement at detector class")
 
         if now > self.next_detection_time:
             time = round(now / self.time_resolution) * self.time_resolution
             self.notify({'time': time})
             self.next_detection_time = now + (1e12 / self.count_rate)  # period in ps
+        else:
+            if self.name == "Eckhardt Research Center Measurement3.bs.detector1":
+                print("Dark count reject at detector:", self.name)
 
     def notify(self, info: Dict[str, Any]):
         """Custom notify function (calls `trigger` method)."""
@@ -172,6 +176,9 @@ class QSDetector(Entity, ABC):
 
     def trigger(self, detector: Detector, info: Dict[str, Any]) -> None:
         # TODO: rewrite
+        # print("detector was triggered")
+        if self.name == "Eckhardt Research Center Measurement3.bs.detector1":
+            print("detection at time", info['time'])
         detector_index = self.detectors.index(detector)
         self.trigger_times[detector_index].append(info['time'])
 
@@ -376,6 +383,17 @@ class QSDetectorFockDirect(QSDetector):
         self.povms = [povm0_0, povm0_1, povm1_0, povm1_1]
 
     def get(self, photon: "Photon", **kwargs):
+
+        if type(photon) == np.ndarray:
+            for pulse in photon:
+                for detection_time in pulse:
+                    if detection_time == 0:
+                        break
+                    process = Process(self.detectors[round(np.random.rand())], "record_detection", [])
+                    event = Event(self.timeline.now()+detection_time, process)
+                    self.timeline.schedule(event)
+            return
+
         src = kwargs["src"]
         assert photon.encoding_type["name"] == "fock", "Photon must be in Fock representation."
         input_port = self.src_list.index(src)  # determine at which input the Photon arrives, an index
@@ -490,6 +508,8 @@ class QSDetectorFockInterference(QSDetector):
         truncation = self.timeline.quantum_manager.truncation
         create1, destroy1, create2, destroy2 = self._generate_transformed_ladders()
 
+        # print("dimensions of create1:", type(create1), len(create1))
+
         # for detector1 (index 0)
         
         # In effect, this is: 
@@ -516,9 +536,48 @@ class QSDetectorFockInterference(QSDetector):
         povm10 = povm1_1 @ povm0_2
         povm11 = povm1_1 @ povm1_2
 
+        # print("dimensions of POVMs:", type(povm11), len(povm11))
+
         self.povms = [povm00, povm01, povm10, povm11]
 
     def get(self, photon, **kwargs):
+        # print("type of array:", type(photon))
+        num_photons = 0
+        if type(photon) == np.ndarray:
+            print("time of getting raman photons:", self.timeline.now())
+            # print("photon is:")
+            # print(photon)
+            for pulse in photon:
+                for detection_time in pulse:
+                    if detection_time == 0:
+                        break
+                    num_photons += 1
+                    process = Process(self.detectors[round(np.random.rand())], "record_detection", [])
+                    event = Event(self.timeline.now()+detection_time, process)
+                    self.timeline.schedule(event)
+                    print("Raman photon time:", self.timeline.now()+detection_time)
+            print("number of raman photons are:", num_photons)
+            return
+        # print("photon arrived for detection")
+            # detector_number = np.random.choice([0,1], len(pulse.photon_counts))
+            # masked_photon_counts = ma.masked_array(pulse.photon_counts, mask = detector_number)
+            # masked_time_offsets = ma.masked_array(pulse.time_offsets, mask = detector_number)
+            
+            # detector_0_pulse_train = PulseTrain()
+            # detector_0_pulse_train.time_offsets = masked_time_offsets[masked_time_offsets.mask]
+            # detector_0_pulse_train.photon_counts = masked_photon_counts[masked_photon_counts.mask]
+            
+            # detector_1_pulse_train = PulseTrain()
+            # detector_1_pulse_train.time_offsets = masked_time_offsets[~masked_time_offsets.mask]
+            # detector_1_pulse_train.photon_counts = masked_photon_counts[~masked_photon_counts.mask]
+            
+            # self.detectors[0].schedule_arrivals(detector_0_pulse_train)
+            # self.detectors[1].schedule_arrivals(detector_1_pulse_train)
+
+
+            # print("its a numpy aray")
+        # print("new photon arrived")
+        # print("regula photon time:", self.timeline.now())
         src = kwargs["src"]
         assert photon.encoding_type["name"] == "fock", "Photon must be in Fock representation."
         input_port = self.src_list.index(src)  # determine at which input the Photon arrives, an index
@@ -544,9 +603,11 @@ class QSDetectorFockInterference(QSDetector):
 
             # determine the outcome
             samp = self.get_generator().random()  # random measurement sample
+            # print("dimensions of POVMs:", type(self.povms), len(self.povms[0]))
             result = self.timeline.quantum_manager.measure([key0, key1], self.povms, samp)
 
             assert result in list(range(len(self.povms))), "The measurement outcome is not valid."
+            # print("self.name:", self.name)
             if result == 0:
                 # no click for either detector, but still record the zero outcome
                 # record detection information
@@ -558,6 +619,8 @@ class QSDetectorFockInterference(QSDetector):
             elif result == 1:
                 # detector 1 has a click
                 # trigger time recording will be done by SPD
+                if self.name == "Eckhardt Research Center Measurement3.bs":
+                    print("Reg detection 1 at", self.timeline.now())
                 self.detectors[1].record_detection()
                 # record detection information
                 detection_time = self.timeline.now()
@@ -569,6 +632,8 @@ class QSDetectorFockInterference(QSDetector):
             elif result == 2:
                 # detector 0 has a click
                 # trigger time recording will be done by SPD
+                if self.name == "Eckhardt Research Center Measurement3.bs":
+                    print("Reg detection 2 at", self.timeline.now())
                 self.detectors[0].record_detection()
                 # record detection information
                 detection_time = self.timeline.now()
@@ -580,6 +645,8 @@ class QSDetectorFockInterference(QSDetector):
             elif result == 3:
                 # both detectors have a click
                 # trigger time recording will be done by SPD
+                if self.name == "Eckhardt Research Center Measurement3.bs":
+                    print("Reg detection 1&2 at", self.timeline.now())
                 self.detectors[0].record_detection()
                 self.detectors[1].record_detection()
                 # record detection information
@@ -614,6 +681,8 @@ class QSDetectorFockInterference(QSDetector):
         self.trigger_times = [[], []]
         self.detect_info = [[], []]
         # return trigger_times, detect_info
+        # if self.name == "Eckhardt Research Center Measurement3.bs":
+        print("trigger times where:", trigger_times)
         return trigger_times
 
     # does nothing for this class

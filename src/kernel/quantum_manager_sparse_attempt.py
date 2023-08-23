@@ -18,9 +18,10 @@ if TYPE_CHECKING:
 from qutip.qip.circuit import QubitCircuit, Gate
 from qutip.qip.operations import gate_sequence_product
 from numpy import log, array, cumsum, base_repr, zeros
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_array
+
+import scipy.sparse as sp
 from scipy.special import binom
-import time
 
 from .quantum_state import KetState, DensityState
 from .quantum_utils import *
@@ -207,7 +208,6 @@ class QuantumManagerKet(QuantumManager):
 
     def _measure(self, state: List[complex], keys: List[int],
                  all_keys: List[int], meas_samp: float) -> Dict[int, int]:
-        
         """Method to measure qubits at given keys.
 
         SHOULD NOT be called individually; only from circuit method (unless for unit testing purposes).
@@ -222,7 +222,7 @@ class QuantumManagerKet(QuantumManager):
         Returns:
             Dict[int, int]: mapping of measured keys to measurement results.
         """
-        start = time.time()
+
         if len(keys) == 1:
             if len(all_keys) == 1:
                 prob_0 = measure_state_with_cache_ket(tuple(state))
@@ -281,7 +281,7 @@ class QuantumManagerKet(QuantumManager):
             new_state_obj = KetState(new_state, all_keys)
             for key in all_keys:
                 self.states[key] = new_state_obj
-        print("time taken:", time.time()-start)
+        
         return dict(zip(keys, result_digits))
 
 
@@ -454,7 +454,8 @@ class QuantumManagerDensityFock(QuantumManager):
         """
 
         size = self.dim ** num_systems
-        swap_unitary = zeros((size, size))
+        # swap_unitary = zeros((size, size))
+        swap_unitary = csr_array((size, size))
 
         for old_index in range(size):
             old_str = base_repr(old_index, self.dim)
@@ -484,13 +485,16 @@ class QuantumManagerDensityFock(QuantumManager):
         all_keys = []
 
         # go through keys and get all unique qstate objects
+        # print("len of keys:", len(keys))
         for key in keys:
             qstate = self.states[key]
             if qstate.keys[0] not in all_keys:
+                # print("encountered a new state")
                 old_states.append(qstate.state)
                 all_keys += qstate.keys
 
-        # construct compound state
+        # construct compound state: Creating a combined state using all constituent states
+        # new_state = csr_array([1])
         new_state = [1]
         for state in old_states:
             new_state = kron(new_state, state)
@@ -508,21 +512,23 @@ class QuantumManagerDensityFock(QuantumManager):
                 j = all_keys.index(key)
                 if j != i:
                     swap_unitary = self._generate_swap_operator(len(all_keys), i, j)
+                    # print("type of swap:", type(swap_unitary), "type of new_state:", type(new_state))
                     new_state = swap_unitary @ new_state @ swap_unitary.T
                     all_keys[i], all_keys[j] = all_keys[j], all_keys[i]
 
         return new_state, all_keys
 
-    def _prepare_operator(self, all_keys: List[int], keys: List[int], operator) -> array:
+    # Not sure how this function works. Will have to check.
+    def _prepare_operator(self, all_keys: List[int], keys: List[int], operator):
         # pad operator with identity
         left_dim = self.dim ** all_keys.index(keys[0])
         right_dim = self.dim ** (len(all_keys) - all_keys.index(keys[-1]) - 1)
         prepared_operator = operator
 
         if left_dim > 0:
-            prepared_operator = kron(identity(left_dim), prepared_operator)
+            prepared_operator = sp.kron(identity(left_dim), prepared_operator)
         if right_dim > 0:
-            prepared_operator = kron(prepared_operator, identity(right_dim))
+            prepared_operator = sp.kron(prepared_operator, identity(right_dim))
 
         return prepared_operator
 
@@ -560,7 +566,7 @@ class QuantumManagerDensityFock(QuantumManager):
         data = array([sqrt(i+1) for i in range(truncation)])  # elements in create/annihilation operator matrix
         row = array([i+1 for i in range(truncation)])
         col = array([i for i in range(truncation)])
-        create = csr_matrix((data, (row, col)), shape=(truncation+1, truncation+1)).toarray()
+        create = csr_array((data, (row, col)), shape=(truncation+1, truncation+1))
         destroy = create.conj().T
 
         return create, destroy
@@ -580,6 +586,7 @@ class QuantumManagerDensityFock(QuantumManager):
         """
 
         new_state, all_keys = self._prepare_state(keys)
+
         return self._measure(new_state, keys, all_keys, povms, meas_samp)
 
     def _measure(self, state: List[List[complex]], keys: List[int],
@@ -599,11 +606,15 @@ class QuantumManagerDensityFock(QuantumManager):
         Returns:
             int: measurement as index of matching POVM in supplied tuple.
         """
-        # start = time.time()
+        # print("befire making state_tuple:", len(state))
         state_tuple = tuple(map(tuple, state))
+        # print("state tuple is:", len(state_tuple[0]))
         povm_tuple = tuple([tuple(map(tuple, povm)) for povm in povms])
+        # print("povm tuple is:", len(povm_tuple[0]))
         new_state = None
         result = 0
+
+        # Memoized parts, Not affected by Sparse/Dense. 
 
         # calculate meas probabilities and projected states
         if len(keys) == 1:
@@ -614,17 +625,18 @@ class QuantumManagerDensityFock(QuantumManager):
                 key = keys[0]
                 num_states = len(all_keys)
                 state_index = all_keys.index(key)
-                # print("state_index:", state_index)
                 states, probs = \
                     measure_entangled_state_with_cache_fock_density(state_tuple, state_index, num_states, povm_tuple,
                                                                     self.truncation)
 
         else:
             indices = tuple([all_keys.index(key) for key in keys])
-            # print("indices:", indices)
             states, probs = \
                 measure_multiple_with_cache_fock_density(state_tuple, indices, len(all_keys), povm_tuple,
                                                          self.truncation)
+        # print("states after detection:", len(states))
+
+        # Memoized part ends. 
 
         # calculate result based on measurement sample.
         prob_sum = cumsum(probs)
@@ -658,7 +670,6 @@ class QuantumManagerDensityFock(QuantumManager):
             remaining_keys = [key for key in all_keys if key not in keys]
             self.set(remaining_keys, remaining_state)
 
-        # print("time taken:", time.time() - start)
         return result
 
     def _build_loss_kraus_operators(self, loss_rate: float, all_keys: List[int], key: int) -> List[array]:
@@ -679,7 +690,7 @@ class QuantumManagerDensityFock(QuantumManager):
         kraus_ops = []
 
         for k in range(self.dim):
-            total_kraus_op = zeros((self.dim ** len(all_keys), self.dim ** len(all_keys)))
+            total_kraus_op = csr_array((self.dim ** len(all_keys), self.dim ** len(all_keys)))
 
             for n in range(k, self.dim):
                 coeff = sqrt(binom(n, k)) * sqrt(((1-loss_rate) ** (n-k)) * (loss_rate ** k))
@@ -702,7 +713,7 @@ class QuantumManagerDensityFock(QuantumManager):
 
         prepared_state, all_keys = self._prepare_state([key])
         kraus_ops = self._build_loss_kraus_operators(loss_rate, all_keys, key)
-        output_state = zeros(prepared_state.shape, dtype=complex)
+        output_state = csr_array(prepared_state.shape, dtype=complex)
 
         for kraus_op in kraus_ops:
             output_state += kraus_op @ prepared_state @ kraus_op.conj().T

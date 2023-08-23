@@ -201,7 +201,11 @@ class BSM(Entity):
             detector.__setattr__(arg_name, value)
 
 
-class PULSE_BSM(Entity):
+class Noisy_BSM(Entity):
+    # Simply take the incoming object and send it to the corresponding detectors. If it is a list of Raman Photons, split 
+    # the array into 2 and send one half to each of the detectors (Done already).
+    # For the photon objects from end nodes, send it to the QSDetector(Direct/Interference) whatever is being used.
+    # Advantages of this? The optical channel has just one interface to deal with. It simply directs whatever it gets to the BSM. 
     def __init__(self, name, timeline, phase_error=0, detectors=None):
         """Constructor for base BSM object.
 

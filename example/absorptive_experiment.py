@@ -14,23 +14,23 @@ from pathlib import Path
 from copy import copy
 
 if TYPE_CHECKING:
-    from sequence.components.photon import Photon
+    from src.components.photon import Photon
 
 from json import dump
 import numpy as np
 
-from sequence.kernel.event import Event
-from sequence.kernel.process import Process
-from sequence.kernel.timeline import Timeline
-from sequence.kernel.quantum_manager import FOCK_DENSITY_MATRIX_FORMALISM
-from sequence.components.detector import QSDetectorFockDirect, QSDetectorFockInterference
-from sequence.components.light_source import SPDCSource
-from sequence.components.memory import AbsorptiveMemory
-from sequence.components.optical_channel import QuantumChannel
-from sequence.components.photon import Photon
-from sequence.topology.node import Node
-from sequence.protocol import Protocol
-from sequence.kernel.quantum_utils import *  # only for manual calculation and should not be used in simulation
+from src.kernel.event import Event
+from src.kernel.process import Process
+from src.kernel.timeline import Timeline
+from src.kernel.quantum_manager import FOCK_DENSITY_MATRIX_FORMALISM
+from src.components.detector import QSDetectorFockDirect, QSDetectorFockInterference
+from src.components.light_source import SPDCSource
+from src.components.memory import AbsorptiveMemory
+from src.components.optical_channel import QuantumChannel
+from src.components.photon import Photon
+from src.topology.node import Node
+from src.protocol import Protocol
+from src.kernel.quantum_utils import *  # only for manual calculation and should not be used in simulation
 
 
 # define simulation constants

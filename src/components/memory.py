@@ -447,8 +447,9 @@ class AbsorptiveMemory(Entity):
                 self._schedule_expiration()
 
     def get(self, photon: "Photon", **kwargs):
+        # print("Photon was got in memory")
         """Method to receive a photon to store in the absorptive memory."""
-
+        # print("getting a photon")
         # AFC needs to be prepared first
         if not self.is_prepared:
             raise Exception("AFC is not prepared yet.")
@@ -507,11 +508,12 @@ class AbsorptiveMemory(Entity):
                     self._schedule_storage_reset()
 
     def retrieve(self, dst=""):
+        # print("Photon was retreived at memory")
         """Method to re-emit all stored photons in normal/reverse sequence on demand.
 
         Efficiency is a function of time.
         """
-
+        print("memory retreival started")
         # AFC needs to be prepared first
         # for simplicity, do not allow memory to re-emit if AFC expires
         if not self.is_prepared:
@@ -576,6 +578,7 @@ class AbsorptiveMemory(Entity):
         # clear entanglement and storage information after re-emission
         # retrieval will re-emit all stored photons and information should no longer be stored
         # clearance unified as storage_reset method
+        print("memory retreival complete")
         self.storage_reset()
 
     def expire(self) -> None:

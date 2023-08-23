@@ -124,6 +124,9 @@ class SPDCSource(LightSource):
                  encoding_type=fock, phase_error=0, bandwidth=0):
         super().__init__(name, timeline, frequency, 0, bandwidth, mean_photon_num, encoding_type, phase_error)
         self.wavelengths = wavelengths
+        # If the user uses a setting where both the photons have different wavelengths, you take the object 
+        # from the user and use it directly. Otherwise, the direct method is to call set_wavelengths which sets 
+        # both photons to have 1550nm wavelength. 
         if self.wavelengths is None or len(self.wavelengths) != 2:
             self.set_wavelength()
 
@@ -139,6 +142,8 @@ class SPDCSource(LightSource):
 
         mean_num = self.mean_photon_num
         truncation = self.timeline.quantum_manager.truncation
+
+        # print("truncation is:", truncation)
 
         # create state component amplitudes list
         amp_list = [(sqrt(mean_num / (mean_num + 1)) ** m) / sqrt(mean_num + 1) for m in range(truncation)]
@@ -272,6 +277,7 @@ class SPDCSource(LightSource):
 
         assert len(photons) == 2
         for dst, photon in zip(self._receivers, photons):
+            # print("memory destintions", self._receivers)
             process = Process(dst, "get", [photon])
             event = Event(int(round(time)), process)
             self.timeline.schedule(event)
