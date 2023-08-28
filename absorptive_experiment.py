@@ -41,7 +41,7 @@ TRUNCATION = 2  # truncation of Fock space (=dimension-1)
 # photon sources
 TELECOM_WAVELENGTH = 1436  # telecom band wavelength of SPDC source idler photon
 WAVELENGTH = 606  # wavelength of AFC memory resonant absorption, of SPDC source signal photon
-SPDC_FREQUENCY = 8e6  # frequency of both SPDC sources' photon creation (same as memory frequency and detector count rate)
+SPDC_FREQUENCY = 8e8  # frequency of both SPDC sources' photon creation (same as memory frequency and detector count rate)
 MEAN_PHOTON_NUM1 = 0.1  # mean photon number of SPDC source on node 1
 MEAN_PHOTON_NUM2 = 0.1  # mean photon number of SPDC source on node 2
 
@@ -56,13 +56,13 @@ MEAS_DET1_DARK = 0
 MEAS_DET2_DARK = 0
 
 # fibers
-DIST_ANL_ERC = 1.  # distance between ANL and ERC, in m
-DIST_HC_ERC = 1.  # distance between HC and ERC, in m
+DIST_ANL_ERC = 20.  # distance between ANL and ERC, in m
+DIST_HC_ERC = 20.  # distance between HC and ERC, in m
 ATTENUATION = 0.2  # attenuation rate of optical fibre (in dB/km)
 DELAY_CLASSICAL = 5e-3  # delay for classical communication between BSM node and memory nodes (in s)
 
 # memories
-MODE_NUM = 100  # number of temporal modes of AFC memory (same for both memories)
+MODE_NUM = 10000  # number of temporal modes of AFC memory (same for both memories)
 MEMO_FREQUENCY1 = SPDC_FREQUENCY  # frequency of memory 1
 MEMO_FREQUENCY2 = SPDC_FREQUENCY  # frequency of memory 2
 ABS_EFFICIENCY1 = 0.35  # absorption efficiency of AFC memory 1
@@ -81,8 +81,8 @@ time = int(1e12)
 calculate_fidelity_direct = True
 calculate_rate_direct = True
 num_direct_trials = 5
-num_bs_trials_per_phase = 30
-phase_settings = np.linspace(0, 2*np.pi, num=10, endpoint=False)
+num_bs_trials_per_phase = 50
+phase_settings = np.linspace(0, 2*np.pi, num=15, endpoint=False)
 
 params = {
     # Detector_parameters
@@ -95,7 +95,7 @@ params = {
     "quantum_channel_attenuation" : 0.44,
     "classical_channel_attenuation" : 0.55,
     "distance" : DIST_ANL_ERC, # Distance in km
-    "raman_coefficient" : 10.5e-8, # CORRECT THIS: 10.5e-10, 
+    "raman_coefficient" : 10.5e-10, 
     # "max_rate" : 1e12,
     "quantum_channel_wavelength" : 1536e-9,
     "classical_channel_wavelength" : 1310e-9,
@@ -110,7 +110,7 @@ params = {
 
     # Classical channel parameters
     "avg_power": 2e-3, # avg_power is written in W
-    "OMA": 0.5, # OMA is written in dBm
+    "OMA": 1, # OMA is written in dBm
     "narrow_band_filter_bandwidth" : 0.03,
 }
 OMA = 10**( params["OMA"] /10)/1000 # We receive the OMA in dBm
@@ -247,6 +247,9 @@ class EndNode(Node):
         dst = kwargs.get("dst")
         if dst is None:
             # from spdc source: send to bsm node
+            if not self.cchannels[self.bsm_name].classical_communication_running:
+                print("classical dst is:", self.bsm_name)
+                self.cchannels[self.bsm_name].start_classical_communication()
             self.send_qubit(self.bsm_name, photon)
         else:
             # from memory: send to destination (measurement) node
@@ -473,11 +476,13 @@ if __name__ == "__main__":
     erc_2.set_first_component(erc_2.bs_detector_name)
     
     
-    classical_omas = np.linspace(-1,3,5)
-    for oma in classical_omas: 
-        OMA = 10**( oma /10)/1000 # We receive the OMA in dBm
+    # classical_omas = np.linspace(-1,3,5)
+    avg_powers = np.linspace(-1,4,5)
+    avg_powers = 10**( avg_powers /10)/1000
+    for power in avg_powers: 
+        OMA = 10**( params["OMA"] /10)/1000 # We receive the OMA in dBm
         assert params["avg_power"] - OMA/2 > 0
-        params["classical_powers"] = [params["avg_power"]-OMA/2, params["avg_power"]-OMA/6, params["avg_power"]+OMA/6, params["avg_power"]+OMA/2]
+        params["classical_powers"] = [power-OMA/2, power-OMA/6, power+OMA/6, power+OMA/2]
         
         for i, phase in enumerate(phase_settings):
             print()
@@ -507,8 +512,12 @@ if __name__ == "__main__":
                 print("finished interference measurement trial {} out of {} for phase {} out ouf {}".format(
                     j+1, num_bs_trials_per_phase, i+1, len(phase_settings)))
 
+
+                ########## Resetting classical communication #################
                 cc3.classical_communication_running = False
                 cc4.classical_communication_running = False
+                cc1.classical_communication_running = False
+                cc2.classical_communication_running = False
 
                 # collect data
 
@@ -551,7 +560,7 @@ if __name__ == "__main__":
 
         # open file to store experiment results
         Path("results").mkdir(parents=True, exist_ok=True)
-        filename = f"results/test/absorptive{oma}.json"
+        filename = f"results/all_Raman_long_450_power_many_photons/absorptive{power}.json"
         fh = open(filename, 'w')
         info = {"num_direct_trials": num_direct_trials, "num_bs_trials": num_bs_trials_per_phase,
                 "num_phase": len(phase_settings),

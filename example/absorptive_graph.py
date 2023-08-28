@@ -6,12 +6,13 @@ import matplotlib.ticker as tck
 from matplotlib.colors import LightSource
 
 
-classical_omas = np.linspace(-1,3,5)
-file = open("results/test/visibilities.txt", "a+")
+avg_powers = np.linspace(-1,4,5)[:-1]
+avg_powers = 10**( avg_powers /10)/1000
+file = open("results/all_Raman_long_450_power_many_photons/visibilities.txt", "a+")
 
-for oma in classical_omas:
-
-    filename = f"results/test/absorptive{oma}.json"
+for power in avg_powers:
+    print("file name is:", f"absorptive{power}.json")
+    filename = f"results/all_Raman_long_450_power_many_photons/absorptive{power}.json"
     data = load(open(filename))
 
     direct_results = data["direct results"]
@@ -111,7 +112,7 @@ for oma in classical_omas:
     ax.set_ylabel("Detection Rate")
     ax.legend()
     fig.tight_layout()
-    plt.savefig(f'results/test/graphs/interference_{oma}.png')
+    plt.savefig(f'results/all_Raman_long_450_power_many_photons/graphs/interference_{power}.png')
     plt.show()
 
     # output

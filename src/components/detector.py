@@ -54,7 +54,7 @@ class Detector(Entity):
     _meas_circuit.measure(0)
 
     def __init__(self, name: str, timeline: "Timeline", efficiency=0.9, dark_count=0, count_rate=int(25e6),
-                 time_resolution=50000):
+                 time_resolution=450):
         Entity.__init__(self, name, timeline)  # Detector is part of the QSDetector, and does not have its own name
         self.efficiency = efficiency
         self.dark_count = dark_count  # measured in 1/s
