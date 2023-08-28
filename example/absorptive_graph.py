@@ -6,7 +6,7 @@ import matplotlib.ticker as tck
 from matplotlib.colors import LightSource
 
 
-avg_powers = np.linspace(-1,4,5)[:-1]
+avg_powers = np.linspace(-1,4,5)
 avg_powers = 10**( avg_powers /10)/1000
 file = open("results/all_Raman_long_450_power_many_photons/visibilities.txt", "a+")
 

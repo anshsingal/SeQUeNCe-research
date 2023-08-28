@@ -482,6 +482,12 @@ if __name__ == "__main__":
     for power in avg_powers: 
         OMA = 10**( params["OMA"] /10)/1000 # We receive the OMA in dBm
         assert params["avg_power"] - OMA/2 > 0
+
+        # We have the new parameters here. Calculate the BER for the classical communication. 
+        # Use that BER to feed into NS3's call using command line arguments. 
+        # Inside NS3, prepare the PCAP files. Then, let the simulator take over, read the pcap files
+        # and perform the simulation. 
+
         params["classical_powers"] = [power-OMA/2, power-OMA/6, power+OMA/6, power+OMA/2]
         
         for i, phase in enumerate(phase_settings):

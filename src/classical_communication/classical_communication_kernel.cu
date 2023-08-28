@@ -58,23 +58,18 @@ double distance, double collection_probability, double quantum_channel_index, do
     // printf("through here 1\n");
 
     if (symbol_number < limit){
-        double raman_energy = window_size * classical_powers[bits[symbol_number*2]*2 + bits[symbol_number*2+1]] * raman_coefficient * narrow_band_filter_bandwidth * (exp(-quantum_channel_attenuation * pulse_width) - exp(-classical_channel_attenuation * pulse_width)) / (classical_channel_attenuation - quantum_channel_attenuation);
-        double mean_num_photons = (raman_energy / (h * c / quantum_channel_wavelength));
-        
-        curandState_t state;
-        curand_init(clock64(), symbol_number, 0, &state);
-        
-        // int pulse_time = symbol_number / (classical_rate/2);
-        int num_photons_added = curand_poisson(&state, mean_num_photons);
-        // double* locations = new double[num_photons_added];
-        // double* probabilities_of_transmission = new double[num_photons_added];
         double location, probability_of_transmission;
         double decision;
         double detection_time;
         double classical_speed = c/classical_channel_index, quantum_speed = c/quantum_channel_index;
         int num_writes = 0;
+        curandState_t state;
+        curand_init(clock64(), symbol_number, 0, &state);
 
-        // printf("through here at lest\n");
+
+        double raman_energy = window_size * classical_powers[bits[symbol_number*2]*2 + bits[symbol_number*2+1]] * raman_coefficient * narrow_band_filter_bandwidth * (exp(-quantum_channel_attenuation * pulse_width) - exp(-classical_channel_attenuation * pulse_width)) / (classical_channel_attenuation - quantum_channel_attenuation);
+        double mean_num_photons = (raman_energy / (h * c / quantum_channel_wavelength));
+        int num_photons_added = curand_poisson(&state, mean_num_photons);
 
         for (int i = 0; i<num_photons_added; i++) {
             location = distance * curand_uniform(&state);
@@ -86,16 +81,11 @@ double distance, double collection_probability, double quantum_channel_index, do
             // of p. Now, the the GIF of this region = 0. So, 0^0 = 1 and anything else = 0. So, this 
             // becomes our decision. If 0^(GIF(U*(1/p))) == 1: Accept, else, its value = 0 and hence, reject. 
             // Here, we are considering both, the probability of transmission and the probability of the photon
-            // actually getting detected. 
-
-            
+            // actually getting detected.           
             detection_time = (symbol_number/(classical_rate/2) + (location*1000 / classical_speed + (distance-location)*1000 / quantum_speed) * 1e12);
-
-            // printf("classical_power: %lf, probability_of_transmission: %lf, num_photons_added: %d, symbol_number: %d, num_writes: %d, decision: %lf, detection_time: %lf, \n", classical_powers[bits[symbol_number*2]*2 + bits[symbol_number*2+1]], probability_of_transmission, num_photons_added, symbol_number, num_writes, decision, detection_time);
 
             noise_photons[symbol_number * max_raman_photons_per_pulse + num_writes] = detection_time;
             num_writes += 1*decision;
-            // if (decision) printf("C here: Symbol nummber: %d, detection_time: %lf\n", symbol_number, detection_time);
         }
         noise_photons[symbol_number * max_raman_photons_per_pulse + num_writes] = 0.;
     }
