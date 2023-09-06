@@ -106,8 +106,12 @@ int main(int argc, char* argv[]) {
     //  LogComponentEnable("PacketSink", LOG_LEVEL_ALL);
     //  LogComponentEnable("TcpLargeTransfer", LOG_LEVEL_ALL);
     // printf("program has started\n");
+
+
     CommandLine cmd(__FILE__);
     cmd.Parse(argc, argv);
+
+    // printf("command line arguments: %s, %s, %s \n", argv[0], argv[1], argv[2]);
 
     // printf("Launch power is: %d\n", atoi(argv[1]));
 
@@ -143,7 +147,8 @@ int main(int argc, char* argv[]) {
 
     Ptr<RateErrorModel> em = CreateObject<RateErrorModel> ();
     // em->SetAttribute ("ErrorRate", DoubleValue (0.00001));
-    em->SetRate(0.000001);
+    printf("bit error rate is: %f\n", atof(argv[1]));
+    em->SetRate(atof(argv[1]));
     em->SetUnit(RateErrorModel::ERROR_UNIT_BIT);
     dev0.Get (1)->SetAttribute ("ReceiveErrorModel", PointerValue (em));
 

@@ -498,6 +498,7 @@ class ClassicalChannel(OpticalChannel):
         self.bit_number = 0
         self.classical_communication_running = False 
         self.bits = []
+        self.direction = False
         # self.pulse_width = pulse_width
         # self.classical_commnication_rate = 1e9
         # self.max_power = max_power
@@ -575,6 +576,9 @@ class ClassicalChannel(OpticalChannel):
 
         self.params["classical_powers"] = cp.array(self.params["classical_powers"], dtype = cp.float64)
         bits = cp.array(bits, dtype = cp.bool_)
+        directions = cp.array(directions, dtype = cp.bool_)
+
+        # print("directions:", directions)
         limit = int(len(bits)/2)
 
         print("len of bits:", len(bits))
@@ -585,7 +589,7 @@ class ClassicalChannel(OpticalChannel):
         c = 3. * 10**8
 
         print("type of classical powers:", type(self.params["classical_powers"]))
-        params = (bits, noise_photons, limit, 
+        params = (bits, directions, noise_photons, limit, 
                   self.params["classical_powers"],
                   self.params["raman_coefficient"],
                   self.params["narrow_band_filter_bandwidth"],
@@ -629,7 +633,8 @@ class ClassicalChannel(OpticalChannel):
         # bit_timing_list1 = [] 
         # bit_timing_list0 = [] 
         bit_list = []
-        directions = []
+        # direction = []
+        direction_list = []
 
         last_bit = int(self.params["classical_communication_window_size"]*self.params["classical_communication_rate"])
         print("Last bit is:", last_bit)
@@ -640,11 +645,14 @@ class ClassicalChannel(OpticalChannel):
         while present_bit < last_bit:
             if len(self.bits[int(self.bit_number):])+present_bit < last_bit:
                 bit_list.extend(self.bits[self.bit_number:])
+                print("direction list extended:", [self.direction]*len(self.bits[self.bit_number:]))
+                direction_list.extend([self.direction]*len(self.bits[self.bit_number:]))
                 present_bit += len(self.bits[self.bit_number:])
                 self.bit_number += len(self.bits[self.bit_number:])
                 # print("len of extend list:", len(self.bits))
             else:
                 bit_list.extend(self.bits[:last_bit-present_bit])
+                direction_list.extend([self.direction]*len(self.bits[:last_bit-present_bit]))
                 present_bit += last_bit - present_bit
                 self.bit_number += last_bit - present_bit
                 time_up_flag = True
@@ -656,15 +664,19 @@ class ClassicalChannel(OpticalChannel):
                     self.pcap = PcapNgReader("src/classical_communication/pcap_files/SeQUeNCe-%s-0.pcap" % (self.sender_index))
                     continue
                 self.bit_number = 0
-                directions.append((packet.dst == "10.1.1.%s" % (int(self.sender_index)+1))) # This could be handled more elegenatly by keeping PCAP file names as IP addresses
+                # Direction is True if the sender is not the destination. Hence, forward communication when direction == 1
+                self.direction = (packet.dst != "10.1.1.%s" % (int(self.sender_index)+1)) # This could be handled more elegenatly by keeping PCAP file names as IP addresses
                                                             # Note here that we are tagging only the packet's direction and not every bit. We cannot discern which "1" bit is
                                                             # in which direction. It has been included only for use in future development.
+                print("direction is:", self.direction)
+                
                 self.bits = BitArray(raw(packet))
         
         
         # print("bits covered:", present_bit)
         # print("len of bit list:", len(bit_list))
-        return directions, bit_list
-
-
-
+        # try:
+        print("direction_list", direction_list[0])
+        # except:
+        #     pass
+        return direction_list, bit_list

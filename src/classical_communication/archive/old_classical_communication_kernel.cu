@@ -58,7 +58,7 @@ double distance, double collection_probability, double quantum_channel_index, do
     // printf("through here 1\n");
 
     if (symbol_number < limit){
-        double classical_travel, quantum_travel, transmissivity;
+        double location, probability_of_transmission;
         double decision;
         double detection_time;
         double classical_speed = c/classical_channel_index, quantum_speed = c/quantum_channel_index;
@@ -69,21 +69,20 @@ double distance, double collection_probability, double quantum_channel_index, do
         // printf("zero power direction: %f\n", pow((float)0., (float)directions[symbol_number]));
 
 
-        // See calculations for how this equation comes about. 
-        double mean_num_photons = classical_powers[bits[symbol_number*2]*2 + bits[symbol_number*2+1]] * raman_coefficient * narrow_band_filter_bandwidth * 
-                              4 * exp(-classical_channel_attenuation * distance/2) * sinh(classical_channel_attenuation*pulse_width/2) * sinh(classical_channel_attenuation*(distance-pulse_width)/2) * 
-                              quantum_channel_wavelength * quantum_channel_index / 
-                              (h*c*(c/1000)*classical_channel_attenuation*classical_channel_attenuation);
-        
+        double raman_energy = window_size * classical_powers[bits[symbol_number*2]*2 + bits[symbol_number*2+1]] * raman_coefficient * narrow_band_filter_bandwidth * (exp(-quantum_channel_attenuation * pulse_width) - exp(-classical_channel_attenuation * pulse_width)) / (classical_channel_attenuation - quantum_channel_attenuation);
+        double mean_num_photons = (raman_energy / (h * c / quantum_channel_wavelength));
         printf("mean_num_photons: %lf\n", mean_num_photons);
-        // double mean_num_photons = (raman_energy / (h * c / quantum_channel_wavelength));
         int num_photons_added = curand_poisson(&state, mean_num_photons);
 
         printf("num_photons_added: %d\n", num_photons_added);
 
         for (int i = 0; i<num_photons_added; i++) {
-            // location = distance * curand_uniform(&state);
-            classical_travel = -1/(classical_channel_attenuation) * log(curand_uniform(&state) * (exp(-distance*classical_channel_attenuation) - 1) + 1);
+            location = distance * curand_uniform(&state);
+            printf("location of adding photon: %lf\n", location);
+
+            // We will slightly change our raman model. We already found the number of raman photons being emitted.
+            // This was found using the correct 
+
 
             // Until here, everything remains the same for both directions of classical communication.  
             // Here, we are using the expression for attenuation directly. If you want the expression for CDF instead, use the commit on Aug 28 2023 or before. 
@@ -91,11 +90,8 @@ double distance, double collection_probability, double quantum_channel_index, do
             // Also, we have included the direction within this expression. How it works is that if bits are sent from sender to receiver, direction = 1.
             //  So, when you have forward communication, the quantum channel attenuation factor becomes e^(-Alpha*[ distance - 2*location + location]) = e^(-Alpha*[ distance - location]).
             // On the other hand, when you have backward communication, the factor becomes: e^(-Alpha * location). Hence, you have accounted for both directions without an if statement in the kernel. 
-
-            quantum_travel = (directions[symbol_number])*(distance-2*classical_travel)+classical_travel;
-            transmissivity = exp(-quantum_channel_attenuation * quantum_travel);
-
-            decision = pow(0., floor(curand_uniform(&state)/(transmissivity*collection_probability)));
+            probability_of_transmission = exp(-quantum_channel_attenuation*((directions[symbol_number])*(distance-2*location)+location))*(exp(-classical_channel_attenuation*location));
+            decision = pow(0., floor(curand_uniform(&state)/(probability_of_transmission*collection_probability)));
             if (decision){printf("photon accepted\n");}
             // How are we making decisions here: 0^0 is 1 in C. So, whatever is our probability,
             // we multiply its reciprocla with a uniform sample. So, you have U*(1/p). Call this z.
@@ -104,7 +100,7 @@ double distance, double collection_probability, double quantum_channel_index, do
             // becomes our decision. If 0^(GIF(U*(1/p))) == 1: Accept, else, its value = 0 and hence, reject. 
             // Here, we are considering both, the probability of transmission and the probability of the photon
             // actually getting detected.           
-            detection_time = (symbol_number/(classical_rate/2) + (classical_travel*1000 / classical_speed + quantum_travel*1000 / quantum_speed) * 1e12);
+            detection_time = (symbol_number/(classical_rate/2) + (location*1000 / classical_speed + (distance-location)*1000 / quantum_speed) * 1e12);
 
             noise_photons[symbol_number * max_raman_photons_per_pulse + num_writes] = detection_time;
             num_writes += 1*decision;

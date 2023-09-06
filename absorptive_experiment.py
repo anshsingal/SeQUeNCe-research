@@ -12,6 +12,7 @@ The measurement node contians a QSDetectorFockDirect instance and a QSDetectorFo
 from typing import List, Callable, TYPE_CHECKING
 from pathlib import Path
 from copy import copy
+import json
 
 if TYPE_CHECKING:
     from src.components.photon import Photon
@@ -31,9 +32,11 @@ from src.components.photon import Photon
 from src.topology.node import Node
 from src.protocol import Protocol
 from src.kernel.quantum_utils import *  # only for manual calculation and should not be used in simulation
+from src.classical_communication.BER_models import calculate_BER_4PAM_noPreamplifier
+from src.classical_communication.runner_ns3 import run_NS3
 
-
-# define simulation constants
+sim_parans_file = open("params.json")
+sim_params = json.loads(sim_parans_file)
 
 # quantum manager
 TRUNCATION = 2  # truncation of Fock space (=dimension-1)
@@ -62,7 +65,7 @@ ATTENUATION = 0.2  # attenuation rate of optical fibre (in dB/km)
 DELAY_CLASSICAL = 5e-3  # delay for classical communication between BSM node and memory nodes (in s)
 
 # memories
-MODE_NUM = 10000  # number of temporal modes of AFC memory (same for both memories)
+MODE_NUM = 100  # number of temporal modes of AFC memory (same for both memories)
 MEMO_FREQUENCY1 = SPDC_FREQUENCY  # frequency of memory 1
 MEMO_FREQUENCY2 = SPDC_FREQUENCY  # frequency of memory 2
 ABS_EFFICIENCY1 = 0.35  # absorption efficiency of AFC memory 1
@@ -87,30 +90,20 @@ phase_settings = np.linspace(0, 2*np.pi, num=15, endpoint=False)
 params = {
     # Detector_parameters
     "collection_probability" : BSM_DET1_EFFICIENCY,
-    # "dark_count_rate" : BSM_DET1_DARK, #100,
-    # "dead_time" : 25000,
-    # "time_resolution" : 50,
-
     # Optical channel
     "quantum_channel_attenuation" : 0.44,
     "classical_channel_attenuation" : 0.55,
-    "distance" : DIST_ANL_ERC, # Distance in km
+    "distance" : DIST_ANL_ERC,
     "raman_coefficient" : 10.5e-10, 
-    # "max_rate" : 1e12,
     "quantum_channel_wavelength" : 1536e-9,
     "classical_channel_wavelength" : 1310e-9,
     "classical_communication_rate" : 1e10/1e12, # Classical communication (bit) rate in Picoseconds, i.e. B/ps. 1e7/1e12 is 10Mb/s in ps = 1e-5 b/ps
-
     "quantum_channel_index": 1.470,
     "classical_channel_index": 1.471,
     "classical_communication_window_size": (MODE_NUM/SPDC_FREQUENCY)*1e12,
-
-    # Light Source
-    # "mean_photon_num" : 0.003, # 0.01
-
     # Classical channel parameters
-    "avg_power": 2e-3, # avg_power is written in W
-    "OMA": 1, # OMA is written in dBm
+    "avg_power": 2e-3,
+    "OMA": 1,
     "narrow_band_filter_bandwidth" : 0.03,
 }
 OMA = 10**( params["OMA"] /10)/1000 # We receive the OMA in dBm
@@ -440,38 +433,10 @@ if __name__ == "__main__":
     results_direct_measurement = []
     results_bs_measurement = [[] for _ in phase_settings]
 
+    NS3_file = "src/classical_communication/ns3_script_new_data.cc"
+    data_file = "src/classical_communication/file.jpg"
+
     """Run Simulation"""
-    # for i in range(num_direct_trials):
-    #     # start protocol for emitting
-    #     process = Process(anl.emit_protocol, "start", [])
-    #     event = Event(start_time_anl, process)
-    #     tl.schedule(event)
-    #     process = Process(hc.emit_protocol, "start", [])
-    #     event = Event(start_time_hc, process)
-    #     tl.schedule(event)
-
-    #     tl.run()
-    #     print("finished direct measurement trial {} out of {}".format(i+1, num_direct_trials))
-
-    #     # collect data
-
-    #     # BSM results determine relative sign of reference Bell state and herald successful entanglement
-    #     bsm_res = erc.get_detector_entries(erc.bsm_name, start_time_bsm, MODE_NUM, SPDC_FREQUENCY)
-    #     bsm_success_indices = [i for i, res in enumerate(bsm_res) if res == 1 or res == 2]
-    #     meas_res = erc_2.get_detector_entries(erc_2.direct_detector_name, start_time_meas, MODE_NUM, SPDC_FREQUENCY)
-
-    #     num_bsm_res = len(bsm_success_indices)
-    #     meas_res_valid = [meas_res[i] for i in bsm_success_indices]
-    #     counts_diag = [0] * 4
-    #     for j in range(4):
-    #         counts_diag[j] = meas_res_valid.count(j)
-    #     res_diag = {"counts": counts_diag, "total_count": num_bsm_res}
-    #     results_direct_measurement.append(res_diag)
-
-    #     # reset timeline
-    #     tl.time = 0
-    #     tl.init()
-
     # change to other measurement
     erc_2.set_first_component(erc_2.bs_detector_name)
     
@@ -482,13 +447,15 @@ if __name__ == "__main__":
     for power in avg_powers: 
         OMA = 10**( params["OMA"] /10)/1000 # We receive the OMA in dBm
         assert params["avg_power"] - OMA/2 > 0
+        params["classical_powers"] = [power-OMA/2, power-OMA/6, power+OMA/6, power+OMA/2]
+
+        BER = calculate_BER_4PAM_noPreamplifier(params["classical_channel_attenuation"], params["distance"], params["classical_communication_rate"]*1e12, params["classical_powers"], params["avg_power"])
+        run_NS3(BER, NS3_file, data_file)
 
         # We have the new parameters here. Calculate the BER for the classical communication. 
         # Use that BER to feed into NS3's call using command line arguments. 
         # Inside NS3, prepare the PCAP files. Then, let the simulator take over, read the pcap files
         # and perform the simulation. 
-
-        params["classical_powers"] = [power-OMA/2, power-OMA/6, power+OMA/6, power+OMA/2]
         
         for i, phase in enumerate(phase_settings):
             print()
