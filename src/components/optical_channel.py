@@ -574,36 +574,42 @@ class ClassicalChannel(OpticalChannel):
         max_raman_photons_per_pulse = 5 # Find this with some upper bound on number of photons scattered because 
                                         # by a single pulse
 
-        self.params["classical_powers"] = cp.array(self.params["classical_powers"], dtype = cp.float64)
+        # self.params["classical_powers"] = cp.array(self.params["classical_powers"], dtype = cp.float64)
         bits = cp.array(bits, dtype = cp.bool_)
         directions = cp.array(directions, dtype = cp.bool_)
 
         # print("directions:", directions)
         limit = int(len(bits)/2)
 
-        print("len of bits:", len(bits))
+        # print("len of bits:", len(bits))
 
         noise_photons = cp.zeros((limit, max_raman_photons_per_pulse), dtype = cp.int64) # We don't know how many photons could be generated per pulse. Taking 5 per bit (on average) for now arbitrarily
 
         h = 6.62607015 * 10**(-34)
         c = 3. * 10**8
+        # gpu_raman = cp.array(self.params["RAMAN_COEFFICIENTS"], dtype = cp.float64)
+        # print("PYTHON: raman coeffs 2", self.params["RAMAN_COEFFICIENTS"], gpu_raman, "raman1:", self.params["RAMAN_COEFFICIENTS"][0])
 
-        print("type of classical powers:", type(self.params["classical_powers"]))
+        # test = [0.1e-7, 0.2e-8, 0.3e-9]
+        # test_gpu = cp.array(test)
+        # print("PYTHON: QUANTUM_WAVELENGTH = ", self.params["QUANTUM_WAVELENGTH"])
+
+        # print("type of classical powers:", type(self.params["classical_powers"]))
         params = (bits, directions, noise_photons, limit, 
-                  self.params["classical_powers"],
-                  self.params["raman_coefficient"],
-                  self.params["narrow_band_filter_bandwidth"],
-                  self.params["quantum_channel_attenuation"],
-                  c/((self.params["classical_communication_rate"]/2)*1e12)/1e3,
-                  self.params["classical_channel_attenuation"],
-                  self.params["distance"] * 1000 / c,
+                  cp.array(self.params["CLASSICAL_POWERS"], dtype = cp.float64),
+                  cp.array(self.params["RAMAN_COEFFICIENTS"], dtype = cp.float64),
+                  self.params["NBF_BANDWIDTH"],
+                  self.params["QUNATUM_ATTENUATION"],
+                  c/((self.params["CLASSICAL_RATE"]/2)*1e12)/1e3,
+                  cp.array(self.params["CLASSICAL_ATTENUATION"], dtype = cp.float64),
+                  self.params["DIST_ANL_ERC"] * 1000 / c,
                   h, c, 
-                  self.params["quantum_channel_wavelength"],
-                  self.params["classical_communication_rate"],
-                  self.params["distance"],
-                  self.params["collection_probability"],
-                  self.params["quantum_channel_index"],
-                  self.params["classical_channel_index"],
+                  self.params["QUANTUM_WAVELENGTH"],
+                  self.params["CLASSICAL_RATE"],
+                  self.params["DIST_ANL_ERC"],
+                  self.params["BSM_DET1_EFFICIENCY"],
+                  self.params["QUANTUM_INDEX"],
+                  cp.array(self.params["CLASSICAL_INDEX"], dtype = cp.float64),
                   max_raman_photons_per_pulse)
         
         # print("transmitting classical message")
@@ -620,9 +626,9 @@ class ClassicalChannel(OpticalChannel):
         self.timeline.schedule(event)
 
         # print("type of index:", self.params["classical_communication_window_size"])
-        if self.timeline.now()+self.params["classical_communication_window_size"] < self.params["classical_communication_window_size"]:
+        if self.timeline.now()+self.params["COMMS_WINDOW_SIZE"] < self.params["COMMS_WINDOW_SIZE"]:
             process = Process(self, "transmit_classical_message", [])
-            event = Event(self.timeline.now()+self.params["classical_communication_window_size"], process)
+            event = Event(self.timeline.now()+self.params["COMMS_WINDOW_SIZE"], process)
             self.timeline.schedule(event)
 
         # return cp.asarray(noise_photons)
@@ -636,8 +642,8 @@ class ClassicalChannel(OpticalChannel):
         # direction = []
         direction_list = []
 
-        last_bit = int(self.params["classical_communication_window_size"]*self.params["classical_communication_rate"])
-        print("Last bit is:", last_bit)
+        last_bit = int(self.params["COMMS_WINDOW_SIZE"]*self.params["CLASSICAL_RATE"])
+        # print("Last bit is:", last_bit)
         present_bit = 0
         time_up_flag = False
         # print("last_bit:", last_bit)
@@ -645,7 +651,7 @@ class ClassicalChannel(OpticalChannel):
         while present_bit < last_bit:
             if len(self.bits[int(self.bit_number):])+present_bit < last_bit:
                 bit_list.extend(self.bits[self.bit_number:])
-                print("direction list extended:", [self.direction]*len(self.bits[self.bit_number:]))
+                # print("direction list extended:", [self.direction]*len(self.bits[self.bit_number:]))
                 direction_list.extend([self.direction]*len(self.bits[self.bit_number:]))
                 present_bit += len(self.bits[self.bit_number:])
                 self.bit_number += len(self.bits[self.bit_number:])
@@ -668,7 +674,7 @@ class ClassicalChannel(OpticalChannel):
                 self.direction = (packet.dst != "10.1.1.%s" % (int(self.sender_index)+1)) # This could be handled more elegenatly by keeping PCAP file names as IP addresses
                                                             # Note here that we are tagging only the packet's direction and not every bit. We cannot discern which "1" bit is
                                                             # in which direction. It has been included only for use in future development.
-                print("direction is:", self.direction)
+                # print("direction is:", self.direction)
                 
                 self.bits = BitArray(raw(packet))
         
@@ -676,7 +682,7 @@ class ClassicalChannel(OpticalChannel):
         # print("bits covered:", present_bit)
         # print("len of bit list:", len(bit_list))
         # try:
-        print("direction_list", direction_list[0])
+        # print("direction_list", direction_list[0])
         # except:
         #     pass
         return direction_list, bit_list

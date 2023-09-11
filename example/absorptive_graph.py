@@ -5,14 +5,15 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as tck
 from matplotlib.colors import LightSource
 
+MODE_NUM = 100
 
-avg_powers = np.linspace(-1,4,5)
+avg_powers = np.array([3])
 avg_powers = 10**( avg_powers /10)/1000
-file = open("results/all_Raman_long_450_power_many_photons/visibilities.txt", "a+")
+file = open("results/exp_small_mode_num/visibilities.txt", "a+")
 
 for power in avg_powers:
     print("file name is:", f"absorptive{power}.json")
-    filename = f"results/all_Raman_long_450_power_many_photons/absorptive{power}.json"
+    filename = f"results/exp_small_mode_num/absorptive{power}.json"
     data = load(open(filename))
 
     direct_results = data["direct results"]
@@ -31,18 +32,32 @@ for power in avg_powers:
     freq_1 = []
     st_dev_0 = []
     st_dev_1 = []
+    # Iterate over one phase angle, which is a list num_trials (per phase) dictionaries 
     for res in bs_results:
         counts = []
         total = 0
+        # Looking at each such dictionary: (every trial)
+
+        # TRYING
+        # TRYING_total = len(res) * MODE_NUM
+        
         for trial in res:
+            # We are looking at the cases where the entanglement was heralded by a detection at detector1
             counts.append(trial["counts1"])
             total += trial["total_count1"]
         counts = np.array(counts, dtype=float)
-        st_dev = np.std(counts, axis=0)
+    
+        # Here, the axis simply states that all 1st elements of sublists should be sum/std
+        # together and all 2nd elements should be sum/std together. 
+        st_dev = np.std(counts, axis=0) 
         # average
         counts = np.sum(counts, axis=0)
-        counts *= (1 / total)
-        st_dev *= (1 / total)
+
+        # THESE MUST BE total
+        counts *= (1 / np.sqrt(total))
+        st_dev *= (1 / np.sqrt(total))
+        # THESE MJUST BE total
+        
         freq_0.append(counts[0])
         freq_1.append(counts[1])
         st_dev_0.append(2 * st_dev[0])  # mult. by 2, so have 1 on top and bottom of point
@@ -112,7 +127,7 @@ for power in avg_powers:
     ax.set_ylabel("Detection Rate")
     ax.legend()
     fig.tight_layout()
-    plt.savefig(f'results/all_Raman_long_450_power_many_photons/graphs/interference_{power}.png')
+    plt.savefig(f'results/exp_small_mode_num/graphs/interference_{power}.png')
     plt.show()
 
     # output

@@ -30,11 +30,19 @@
 #include <curand.h>
 extern "C" __global__ 
 void Raman_Kernel(bool* bits, bool* directions, long* noise_photons, int limit, double* classical_powers, 
-double raman_coefficient, double narrow_band_filter_bandwidth, double quantum_channel_attenuation, double pulse_width,
-double classical_channel_attenuation, double window_size, double h, double c, double quantum_channel_wavelength, double classical_rate, 
-double distance, double collection_probability, double quantum_channel_index, double classical_channel_index, long max_raman_photons_per_pulse){
+double* raman_coefficient, double narrow_band_filter_bandwidth, double quantum_channel_attenuation, double pulse_width,
+double* classical_channel_attenuation, double window_size, double h, double c, double quantum_channel_wavelength, double classical_rate, 
+double distance, double collection_probability, double quantum_channel_index, double* classical_channel_index, long max_raman_photons_per_pulse){
     
-    
+////////////////////////////////////////////////////////////////////    
+// Parameters which are unique to the direction of classical signal:
+//      directions
+//      classical_powers
+//      raman_coefficient
+//      classical_channel_attenuation
+//      classical_channel_index
+////////////////////////////////////////////////////////////////////
+
     int symbol_number = blockDim.x * blockIdx.x + threadIdx.x;
     
     // if (thread_ID == 0){
@@ -61,29 +69,32 @@ double distance, double collection_probability, double quantum_channel_index, do
         double classical_travel, quantum_travel, transmissivity;
         double decision;
         double detection_time;
-        double classical_speed = c/classical_channel_index, quantum_speed = c/quantum_channel_index;
+        int direction = (int) directions[symbol_number];
+        double classical_speed = c/classical_channel_index[direction], quantum_speed = c/quantum_channel_index;
+        double classical_attenuation = classical_channel_attenuation[direction];
         int num_writes = 0;
         curandState_t state;
         curand_init(clock64(), symbol_number, 0, &state);
 
         // printf("zero power direction: %f\n", pow((float)0., (float)directions[symbol_number]));
-
+        // printf("term: %3.2e\n", quantum_channel_wavelength);
 
         // See calculations for how this equation comes about. 
-        double mean_num_photons = classical_powers[bits[symbol_number*2]*2 + bits[symbol_number*2+1]] * raman_coefficient * narrow_band_filter_bandwidth * 
-                              4 * exp(-classical_channel_attenuation * distance/2) * sinh(classical_channel_attenuation*pulse_width/2) * sinh(classical_channel_attenuation*(distance-pulse_width)/2) * 
+        double mean_num_photons = classical_powers[direction*4 + bits[symbol_number*2]*2 + bits[symbol_number*2+1]] * raman_coefficient[direction]* narrow_band_filter_bandwidth * 
+                              4 * exp(-classical_attenuation * distance/2) * sinh(classical_attenuation*pulse_width/2) * sinh(classical_attenuation*(distance-pulse_width)/2) * 
                               quantum_channel_wavelength * quantum_channel_index / 
-                              (h*c*(c/1000)*classical_channel_attenuation*classical_channel_attenuation);
+                              (h*c*(c/1000)*classical_attenuation*classical_attenuation);
         
-        printf("mean_num_photons: %lf\n", mean_num_photons);
+        // printf("mean_num_photons: %3.2e\n", mean_num_photons);
         // double mean_num_photons = (raman_energy / (h * c / quantum_channel_wavelength));
         int num_photons_added = curand_poisson(&state, mean_num_photons);
 
-        printf("num_photons_added: %d\n", num_photons_added);
+        // printf("num_photons_added: %d\n", num_photons_added);
 
         for (int i = 0; i<num_photons_added; i++) {
-            // location = distance * curand_uniform(&state);
-            classical_travel = -1/(classical_channel_attenuation) * log(curand_uniform(&state) * (exp(-distance*classical_channel_attenuation) - 1) + 1);
+
+            classical_travel = -1/(classical_attenuation) * log(curand_uniform(&state) * (exp(-distance*classical_attenuation) - 1) + 1);
+            quantum_travel = direction*(distance-2*classical_travel)+classical_travel;
 
             // Until here, everything remains the same for both directions of classical communication.  
             // Here, we are using the expression for attenuation directly. If you want the expression for CDF instead, use the commit on Aug 28 2023 or before. 
@@ -91,12 +102,10 @@ double distance, double collection_probability, double quantum_channel_index, do
             // Also, we have included the direction within this expression. How it works is that if bits are sent from sender to receiver, direction = 1.
             //  So, when you have forward communication, the quantum channel attenuation factor becomes e^(-Alpha*[ distance - 2*location + location]) = e^(-Alpha*[ distance - location]).
             // On the other hand, when you have backward communication, the factor becomes: e^(-Alpha * location). Hence, you have accounted for both directions without an if statement in the kernel. 
-
-            quantum_travel = (directions[symbol_number])*(distance-2*classical_travel)+classical_travel;
             transmissivity = exp(-quantum_channel_attenuation * quantum_travel);
 
             decision = pow(0., floor(curand_uniform(&state)/(transmissivity*collection_probability)));
-            if (decision){printf("photon accepted\n");}
+            // if (decision){printf("photon accepted\n");}
             // How are we making decisions here: 0^0 is 1 in C. So, whatever is our probability,
             // we multiply its reciprocla with a uniform sample. So, you have U*(1/p). Call this z.
             // Now, one unit in z has a ratio of 1:p. Hence, if the region between 0->1 has a probability

@@ -555,7 +555,7 @@ class QSDetectorFockInterference(QSDetector):
                     process = Process(self.detectors[round(np.random.rand())], "record_detection", [])
                     event = Event(self.timeline.now()+detection_time, process)
                     self.timeline.schedule(event)
-                    print("Raman photon time:", self.timeline.now()+detection_time)
+                    # print("Raman photon time:", self.timeline.now()+detection_time)
             print("number of raman photons are:", num_photons)
             return
         # print("photon arrived for detection")
@@ -682,7 +682,7 @@ class QSDetectorFockInterference(QSDetector):
         self.detect_info = [[], []]
         # return trigger_times, detect_info
         # if self.name == "Eckhardt Research Center Measurement3.bs":
-        print("trigger times where:", trigger_times)
+        # print("trigger times where:", trigger_times)
         return trigger_times
 
     # does nothing for this class
