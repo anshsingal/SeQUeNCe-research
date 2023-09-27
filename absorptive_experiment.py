@@ -37,7 +37,7 @@ from src.classical_communication.runner_ns3 import run_NS3
 
 # global parameters
 SPDC_FREQUENCY = 8e8
-MODE_NUM = 1000
+MODE_NUM = 100
 
 # Note that all classical channel dependent quantities: 
 #      classical_powers
@@ -106,9 +106,9 @@ params = {
     "time" : int(1e12),
     "calculate_fidelity_direct" : True,
     "calculate_rate_direct" : True,
-    "num_direct_trials" : 5,
-    "num_bs_trials_per_phase" : 50,
-    "phase_settings" : list(np.linspace(0, 2*np.pi, num=15, endpoint=False)),
+    "num_direct_trials" : 1,
+    "num_bs_trials_per_phase" : 1,
+    "phase_settings" : list(np.linspace(0, 2*np.pi, num=1, endpoint=False)),
 }
 
 OMA = 10**( params["OMA"] /10)/1000 # We receive the OMA in dBm
@@ -288,7 +288,7 @@ if __name__ == "__main__":
 
         # open file to store experiment results
         Path("results").mkdir(parents=True, exist_ok=True)
-        filename = f"results/exp_1000_mode_num/absorptive{power}.json"
+        filename = f"results/try/absorptive{power}.json"
         fh = open(filename, 'w')
         info = {"num_direct_trials": params["num_direct_trials"], "num_bs_trials": params["num_bs_trials_per_phase"],
                 "num_phase": len(params["phase_settings"]),
