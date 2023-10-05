@@ -71,6 +71,7 @@ class EndNode(Node):
 
         self.bsm_name = bsm_node
         self.meas_name = measure_node
+        self.start_classical_communication = False
 
         # Initialize source and memory. 
         self.spdc_name = name + ".spdc_source"
@@ -100,15 +101,15 @@ class EndNode(Node):
         dst = kwargs.get("dst")
         if dst is None:
             # from spdc source: send to bsm node
-            if not self.cchannels[self.bsm_name].classical_communication_running:
+            if self.start_classical_communication and not self.cchannels[self.bsm_name].classical_communication_running:
                 # print("classical dst is:", self.bsm_name)
                 self.cchannels[self.bsm_name].start_classical_communication()
             self.send_qubit(self.bsm_name, photon)
         else:
             # from memory: send to destination (measurement) node
-            if not self.cchannels[dst].classical_communication_running:
+            # if not self.cchannels[dst].classical_communication_running:
                 # print("classical dst is:", dst)
-                self.cchannels[dst].start_classical_communication()
+                # self.cchannels[dst].start_classical_communication()
             self.send_qubit(dst, photon)
 
 
@@ -149,7 +150,7 @@ class EntangleNode(Node):
         trigger_times = self.components[detector_name].get_photon_times()
 
 
-        print("len of trigger times (BSM node):", len(trigger_times[0]), len(trigger_times[1]))
+        # print("len of trigger times (BSM node):", len(trigger_times[0]), len(trigger_times[1]))
 
         return_res = [0] * num_bins
 
@@ -172,7 +173,7 @@ class EntangleNode(Node):
             else:
                 num_rejects_1 += 1
 
-        print("BSM num_rejects:", num_rejects_0, num_rejects_1)
+        print("len of trigger times (BSM node):", len(trigger_times[0]), len(trigger_times[1]), "BSM num_rejects:", num_rejects_0, num_rejects_1)
 
         return return_res
 
@@ -222,7 +223,7 @@ class MeasureNode(Node):
         """
         # print("start time is:", start_time, "bin width:", 1/(frequency*1e12))
         trigger_times = self.components[detector_name].get_photon_times()
-        print("len of trigger times (Measure node):", len(trigger_times[0]), len(trigger_times[1]))
+        # print("len of trigger times (Measure node):", len(trigger_times[0]), len(trigger_times[1]))
         return_res = [0] * num_bins
 
         # print("num of detector triggers:", len(trigger_times[0]), len(trigger_times[1]))
@@ -254,6 +255,6 @@ class MeasureNode(Node):
                 # print("actual_time:", time, "expected_time", expected_time, "error:", abs(expected_time - time), "closest_bin:", closest_bin )
             
 
-        print("MEAS num_rejects:", num_rejects_0, num_rejects_1)
+        print("len of trigger times (Measure node):", len(trigger_times[0]), len(trigger_times[1]), "MEAS num_rejects:", num_rejects_0, num_rejects_1)
 
         return return_res

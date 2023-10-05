@@ -513,7 +513,7 @@ class AbsorptiveMemory(Entity):
 
         Efficiency is a function of time.
         """
-        print("memory retreival started")
+        # print("memory retreival started")
         # AFC needs to be prepared first
         # for simplicity, do not allow memory to re-emit if AFC expires
         if not self.is_prepared:
@@ -578,7 +578,7 @@ class AbsorptiveMemory(Entity):
         # clear entanglement and storage information after re-emission
         # retrieval will re-emit all stored photons and information should no longer be stored
         # clearance unified as storage_reset method
-        print("memory retreival complete")
+        # print("memory retreival complete")
         self.storage_reset()
 
     def expire(self) -> None:

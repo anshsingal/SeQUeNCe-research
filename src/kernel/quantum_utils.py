@@ -380,6 +380,7 @@ def measure_multiple_with_cache_fock_density(state: Tuple[Tuple[complex]], indic
         else:
             measure_op = sqrtm(povm_list[i])
             state_post_meas = (measure_op @ state @ measure_op) / prob_list[i]
+            print("dimensions:", len(state), len(measure_op), len(state_post_meas))
 
         state_list.append(state_post_meas)
 

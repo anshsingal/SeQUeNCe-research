@@ -130,9 +130,9 @@ class Detector(Entity):
             time = round(now / self.time_resolution) * self.time_resolution
             self.notify({'time': time})
             self.next_detection_time = now + (1e12 / self.count_rate)  # period in ps
-        else:
-            if self.name == "Eckhardt Research Center Measurement3.bs.detector1":
-                print("Dark count reject at detector:", self.name)
+        # else:
+            # if self.name == "Eckhardt Research Center Measurement3.bs.detector1":
+                # print("Dark count reject at detector:", self.name)
 
     def notify(self, info: Dict[str, Any]):
         """Custom notify function (calls `trigger` method)."""
@@ -544,7 +544,7 @@ class QSDetectorFockInterference(QSDetector):
         # print("type of array:", type(photon))
         num_photons = 0
         if type(photon) == np.ndarray:
-            print("time of getting raman photons:", self.timeline.now())
+            # print("time of getting raman photons:", self.timeline.now())
             # print("photon is:")
             # print(photon)
             for pulse in photon:
@@ -604,14 +604,15 @@ class QSDetectorFockInterference(QSDetector):
             # determine the outcome
             samp = self.get_generator().random()  # random measurement sample
             # print("dimensions of POVMs:", type(self.povms), len(self.povms[0]))
-            result = self.timeline.quantum_manager.measure([key0, key1], self.povms, samp)
+            result = self.timeline.quantum_manager.measure([key0, key1], self.povms, samp, verbose = False)
 
             assert result in list(range(len(self.povms))), "The measurement outcome is not valid."
             # print("self.name:", self.name)
+            detection_time = self.timeline.now()
             if result == 0:
                 # no click for either detector, but still record the zero outcome
                 # record detection information
-                detection_time = self.timeline.now()
+                
                 info = {"time": detection_time, "outcome": 0}
                 self.detect_info[0].append(info)
                 self.detect_info[1].append(info)
@@ -619,11 +620,11 @@ class QSDetectorFockInterference(QSDetector):
             elif result == 1:
                 # detector 1 has a click
                 # trigger time recording will be done by SPD
-                if self.name == "Eckhardt Research Center Measurement3.bs":
-                    print("Reg detection 1 at", self.timeline.now())
+                # if self.name == "Eckhardt Research Center Measurement3.bs":
+                #     print("Reg detection 1 at", self.timeline.now())
                 self.detectors[1].record_detection()
                 # record detection information
-                detection_time = self.timeline.now()
+                # detection_time = self.timeline.now()
                 info0 = {"time": detection_time, "outcome": 0}
                 info1 = {"time": detection_time, "outcome": 1}
                 self.detect_info[0].append(info0)
@@ -632,11 +633,11 @@ class QSDetectorFockInterference(QSDetector):
             elif result == 2:
                 # detector 0 has a click
                 # trigger time recording will be done by SPD
-                if self.name == "Eckhardt Research Center Measurement3.bs":
-                    print("Reg detection 2 at", self.timeline.now())
+                # if self.name == "Eckhardt Research Center Measurement3.bs":
+                #     print("Reg detection 2 at", self.timeline.now())
                 self.detectors[0].record_detection()
                 # record detection information
-                detection_time = self.timeline.now()
+                # detection_time = self.timeline.now()
                 info0 = {"time": detection_time, "outcome": 1}
                 info1 = {"time": detection_time, "outcome": 0}
                 self.detect_info[0].append(info0)
@@ -645,12 +646,12 @@ class QSDetectorFockInterference(QSDetector):
             elif result == 3:
                 # both detectors have a click
                 # trigger time recording will be done by SPD
-                if self.name == "Eckhardt Research Center Measurement3.bs":
-                    print("Reg detection 1&2 at", self.timeline.now())
+                # if self.name == "Eckhardt Research Center Measurement3.bs":
+                #     print("Reg detection 1&2 at", self.timeline.now())
                 self.detectors[0].record_detection()
                 self.detectors[1].record_detection()
                 # record detection information
-                detection_time = self.timeline.now()
+                # detection_time = self.timeline.now()
                 info = {"time": detection_time, "outcome": 1}
                 self.detect_info[0].append(info)
                 self.detect_info[1].append(info)

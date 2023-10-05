@@ -37,7 +37,9 @@ from src.classical_communication.runner_ns3 import run_NS3
 
 # global parameters
 SPDC_FREQUENCY = 8e8
-MODE_NUM = 100
+MODE_NUM = 1000
+
+directory = "results/full_tomography_1000_500/"
 
 # Note that all classical channel dependent quantities: 
 #      classical_powers
@@ -48,7 +50,7 @@ MODE_NUM = 100
 
 params = {
     # quantum manager
-    "TRUNCATION" : 2,  # truncation of Fock space (:dimension-1)
+    "TRUNCATION" : 1,  # truncation of Fock space (:dimension-1)
 
     # photon sources
     "TELECOM_WAVELENGTH" : 1436.,  # telecom band wavelength of SPDC source idler photon
@@ -70,9 +72,9 @@ params = {
     "NBF_BANDWIDTH" : 0.03,
 
     # fibers
-    "DIST_ANL_ERC" : 20.,  # distance between ANL and ERC, in m
-    "DIST_HC_ERC" : 20.,  # distance between HC and ERC, in m
-    "QUNATUM_ATTENUATION" : 0.2,  # attenuation rate of optical fibre (in dB/km)
+    "DIST_ANL_ERC" : 20.,  # distance between ANL and ERC, in km
+    "DIST_HC_ERC" : 20.,  # distance between HC and ERC, in km
+    "QUNATUM_ATTENUATION" : 0.44,  # attenuation rate of optical fibre (in dB/km)
     "CLASSICAL_ATTENUATION" : [0.55, 0.5],
     "RAMAN_COEFFICIENTS" : [10.5e-10, 33.e-10],
     "DELAY_CLASSICAL" : 5e-3,  # delay for classical communication between BSM node and memory nodes (in s)
@@ -81,10 +83,10 @@ params = {
 
     # classical communication 
     "CLASSICAL_WAVELENGTH" : 1310,
-    "CLASSICAL_RATE" : 1e10/1e12,
+    "CLASSICAL_RATE" : 1e10,
     "COMMS_WINDOW_SIZE" : (MODE_NUM/SPDC_FREQUENCY)*1e12, # Amount of time it takes to complete one batch of MODE_NUM quantum emissions. 
                                                           # This is the amount of time that we calculate Raman scatting for. 
-    "AVG_POWER": 2e-3,
+    "AVG_POWER": [None,], # np.array([3]), # Here, you input a list of average powers (dBm, check this) that you want to iterate over. When the results are printed out, they'll contain only the avg_power that was used in that iteration. 
     "OMA": 1,
 
     # memories
@@ -106,16 +108,17 @@ params = {
     "time" : int(1e12),
     "calculate_fidelity_direct" : True,
     "calculate_rate_direct" : True,
-    "num_direct_trials" : 1,
-    "num_bs_trials_per_phase" : 1,
-    "phase_settings" : list(np.linspace(0, 2*np.pi, num=1, endpoint=False)),
+    "num_direct_trials" : 1000,
+    "num_bs_trials_per_phase" : 200,
+    "phase_settings" : list(np.linspace(0, 2*np.pi, num=15, endpoint=False)),
 }
 
-OMA = 10**( params["OMA"] /10)/1000 # We receive the OMA in dBm
-assert params["AVG_POWER"] - OMA/2 > 0
-params["CLASSICAL_POWERS"] = [[params["AVG_POWER"]-OMA/2, params["AVG_POWER"]-OMA/6, params["AVG_POWER"]+OMA/6, params["AVG_POWER"]+OMA/2],
-                              [params["AVG_POWER"]-OMA/2, params["AVG_POWER"]-OMA/6, params["AVG_POWER"]+OMA/6, params["AVG_POWER"]+OMA/2]]
+# OMA = 10**( params["OMA"] /10)/1000 # We receive the OMA in dBm
+# assert params["AVG_POWER"] - OMA/2 > 0
+# params["CLASSICAL_POWERS"] = [[params["AVG_POWER"]-OMA/2, params["AVG_POWER"]-OMA/6, params["AVG_POWER"]+OMA/6, params["AVG_POWER"]+OMA/2],
+#                               [params["AVG_POWER"]-OMA/2, params["AVG_POWER"]-OMA/6, params["AVG_POWER"]+OMA/6, params["AVG_POWER"]+OMA/2]]
 
+classical_communicaion_performance = False
 
 def afc_efficiency1(t: int) -> float:
     return np.exp(-t*params["DECAY_RATE1"])
@@ -123,10 +126,22 @@ def afc_efficiency2(t: int) -> float:
     return np.exp(-t*params["DECAY_RATE2"])
 
 
+def run_simulator(tl, router1, start_time_router1, router2, start_time_router2):
+    process = Process(router1.emit_protocol, "start", [])
+    event = Event(start_time_router1, process)
+    tl.schedule(event)
+    process = Process(router2.emit_protocol, "start", [])
+    event = Event(start_time_router2, process)
+    tl.schedule(event)
+    tl.run()
+
+
 if __name__ == "__main__":
 
     tl = Timeline(params["time"], formalism=FOCK_DENSITY_MATRIX_FORMALISM, truncation=params["TRUNCATION"])
 
+
+    #################### SIMULATION SETUP ##########################
     anl_name = "Argonne0"
     hc_name = "Harper Court1"
     erc_name = "Eckhardt Research Center BSM2"
@@ -161,7 +176,9 @@ if __name__ == "__main__":
 
     tl.init()
 
-    # calculate start time for protocol
+
+
+    ############# Simulation timing calculations ###################
     # since fiber lengths equal, both start at 0
     start_time_anl = start_time_hc = 0
 
@@ -171,10 +188,9 @@ if __name__ == "__main__":
     assert delay_anl == delay_hc
     start_time_bsm = start_time_anl + delay_anl
     mem = anl.components[anl.memo_name]
-    # total_time is the total amount of time that 
+    # total_time is the total amount of time that is required for 
     total_time = mem.total_time
     start_time_meas = start_time_anl + total_time + delay_anl
-    # print("start_time_meas:", start_time_meas)
 
     # Start
     params["simulation_end_time"] = start_time_meas
@@ -187,59 +203,75 @@ if __name__ == "__main__":
     NS3_file = "src/classical_communication/ns3_script.cc"
     data_file = "src/classical_communication/file.jpg"
 
-    """Run Simulation"""
-    # change to other measurement
-    erc_2.set_first_component(erc_2.bs_detector_name)
+
+    ################ Classical parameters #########################
+
+    avg_powers = params['AVG_POWER']
+    # avg_powers = 10**( avg_powers /10)/1000
+    OMA = 10**( params["OMA"] /10)/1000 # We receive the OMA in dBm
+
     
-    
-    # classical_omas = np.linspace(-1,3,5)
-    # avg_powers = np.linspace(-1,4,5)
-    avg_powers = np.array([3])
-    avg_powers = 10**( avg_powers /10)/1000
-    params_file = open("results/exp_large_mode_num/params.json", "w+")
-    json.dump(params, params_file)
     for power in avg_powers: 
-        OMA = 10**( params["OMA"] /10)/1000 # We receive the OMA in dBm
-        assert params["AVG_POWER"] - OMA/2 > 0
-        params["CLASSICAL_POWERS"] = [[power-OMA/2, power-OMA/6, power+OMA/6, power+OMA/2], [power-OMA/2, power-OMA/6, power+OMA/6, power+OMA/2]]
+        if not power == None:
+            anl.start_classical_communication = True
+            hc.start_classical_communication = True
+            power = 10**( power /10)/1000
+            params['AVG_POWER'] = power 
+            assert power - OMA/2 > 0
+            params["CLASSICAL_POWERS"] = [[power-OMA/2, power-OMA/6, power+OMA/6, power+OMA/2], [power-OMA/2, power-OMA/6, power+OMA/6, power+OMA/2]]
+        else: 
+            power = "No_Power"
 
-        print("params[CLASSICAL_POWERS][0]:", params["CLASSICAL_POWERS"])
-        BER = calculate_BER_4PAM_noPreamplifier(params["CLASSICAL_ATTENUATION"][0], params["DIST_ANL_ERC"], params["CLASSICAL_RATE"]*1e12, params["CLASSICAL_POWERS"][0], params["AVG_POWER"])
-        run_NS3(BER, NS3_file, data_file, data_file)
-
-        # We have the new parameters here. Calculate the BER for the classical communication. 
-        # Use that BER to feed into NS3's call using command line arguments. 
-        # Inside NS3, prepare the PCAP files. Then, let the simulator take over, read the pcap files
-        # and perform the simulation. 
+        if classical_communicaion_performance: # Remember to turn this on to run NS3
+            print("params[CLASSICAL_POWERS][0]:", params["CLASSICAL_POWERS"])
+            BER = calculate_BER_4PAM_noPreamplifier(params["CLASSICAL_ATTENUATION"][0], params["DIST_ANL_ERC"], params["CLASSICAL_RATE"], params["CLASSICAL_POWERS"][0], params["AVG_POWER"])
+            run_NS3(BER, NS3_file, data_file, data_file)
         
+
+        ###################### Direct measurement ################################
+        for i in range(params['num_direct_trials']):
+            # start protocol for emitting
+            run_simulator(tl, anl, start_time_anl, hc, start_time_hc)
+            print("finished direct measurement trial {} out of {}".format(i+1, params['num_direct_trials']))
+
+            ########## Resetting classical communication #################
+            cc3.classical_communication_running = False
+            cc4.classical_communication_running = False
+            cc1.classical_communication_running = False
+            cc2.classical_communication_running = False
+
+            # collect data
+
+            # BSM results determine relative sign of reference Bell state and herald successful entanglement
+            bsm_res = erc.get_detector_entries(erc.bsm_name, start_time_bsm, MODE_NUM, SPDC_FREQUENCY)
+            bsm_success_indices = [i for i, res in enumerate(bsm_res) if res == 1 or res == 2]
+            meas_res = erc_2.get_detector_entries(erc_2.direct_detector_name, start_time_meas, MODE_NUM, SPDC_FREQUENCY)
+
+            num_bsm_res = len(bsm_success_indices)
+            meas_res_valid = [meas_res[i] for i in bsm_success_indices]
+            counts_diag = [0] * 4
+            for j in range(4):
+                counts_diag[j] = meas_res_valid.count(j)
+            res_diag = {"counts": counts_diag, "total_count": num_bsm_res}
+            results_direct_measurement.append(res_diag)
+
+            # reset timeline
+            tl.time = 0
+            tl.init()
+
+
+        ######################## Interference Measurement ####################################
+        erc_2.set_first_component(erc_2.bs_detector_name)
         for i, phase in enumerate(params["phase_settings"]):
             print()
             print("New Phase angle")
             erc_2.set_phase(phase)
 
             for j in range(params["num_bs_trials_per_phase"]):
-                print()
-                print("New Trial")
-                # start protocol for emitting
-                # cc1.start_classical_communication()
-                # cc2.start_classical_communication()
-                # cc3.start_classical_communication()
-                # cc4.start_classical_communication()
+                
+                run_simulator(tl, anl, start_time_anl, hc, start_time_hc)
 
-                process = Process(anl.emit_protocol, "start", [])
-                event = Event(start_time_anl, process)
-                tl.schedule(event)
-
-
-
-                process = Process(hc.emit_protocol, "start", [])
-                event = Event(start_time_hc, process)
-                tl.schedule(event)
-
-                tl.run()
-                print("finished interference measurement trial {} out of {} for phase {} out ouf {}".format(
-                    j+1, params["num_bs_trials_per_phase"], i+1, len(params["phase_settings"])))
-
+                print("finished interference measurement trial {} out of {} for phase {} out ouf {}".format(j+1, params["num_bs_trials_per_phase"], i+1, len(params["phase_settings"])))
 
                 ########## Resetting classical communication #################
                 cc3.classical_communication_running = False
@@ -253,12 +285,12 @@ if __name__ == "__main__":
                 bsm_res = erc.get_detector_entries(erc.bsm_name, start_time_bsm, MODE_NUM, SPDC_FREQUENCY)
                 bsm_success_indices_1 = [i for i, res in enumerate(bsm_res) if res == 1]
                 bsm_success_indices_2 = [i for i, res in enumerate(bsm_res) if res == 2]
-                print("entangling measurment results:", bsm_res)
+                # print("entangling measurment results:", bsm_res)
                 meas_res = erc_2.get_detector_entries(erc_2.bs_detector_name, start_time_meas, MODE_NUM, SPDC_FREQUENCY)
                 res_interference = {}
-                print("measuring measurment results:", meas_res)
+                # print("measuring measurment results:", meas_res)
 
-                print()
+                # print()
 
                 # detector 1
                 num_bsm_res = len(bsm_success_indices_1)
@@ -284,11 +316,17 @@ if __name__ == "__main__":
                 tl.time = 0
                 tl.init()
 
-        """Store results"""
+        
+        #################### Store both direct and interference results ########################
 
         # open file to store experiment results
+
+        params_filename = directory+f"params{power}.json"
+        file_pointer = open(params_filename, 'w')
+        dump(params, file_pointer)
+
         Path("results").mkdir(parents=True, exist_ok=True)
-        filename = f"results/try/absorptive{power}.json"
+        filename = directory+f"absorptive{power}.json"
         fh = open(filename, 'w')
         info = {"num_direct_trials": params["num_direct_trials"], "num_bs_trials": params["num_bs_trials_per_phase"],
                 "num_phase": len(params["phase_settings"]),

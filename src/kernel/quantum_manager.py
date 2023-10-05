@@ -565,7 +565,7 @@ class QuantumManagerDensityFock(QuantumManager):
 
         return create, destroy
 
-    def measure(self, keys: List[int], povms: List[array], meas_samp: float) -> int:
+    def measure(self, keys: List[int], povms: List[array], meas_samp: float, verbose = False) -> int:
         """Method to measure subsystems at given keys in POVM formalism.
 
         Serves as wrapper for private `_measure` method, performing quantum manager specific operations.
@@ -574,16 +574,16 @@ class QuantumManagerDensityFock(QuantumManager):
             keys (List[int]): list of keys to measure.
             povms: (List[array]): list of POVM operators to use for measurement.
             meas_samp (float): random measurement sample to use for computing resultant state.
-
+            verbose (boolean): Print out measurement state and probabilities.
         Returns:
             int: measurement as index of matching POVM in supplied tuple.
         """
 
         new_state, all_keys = self._prepare_state(keys)
-        return self._measure(new_state, keys, all_keys, povms, meas_samp)
+        return self._measure(new_state, keys, all_keys, povms, meas_samp, verbose = verbose)
 
     def _measure(self, state: List[List[complex]], keys: List[int],
-                 all_keys: List[int], povms: List[array], meas_samp: float) -> int:
+                 all_keys: List[int], povms: List[array], meas_samp: float, verbose = False) -> int:
         """Method to measure subsystems at given keys in POVM formalism.
 
         Modifies quantum state of all qubits given by all_keys, post-measurement operator determined
@@ -605,6 +605,11 @@ class QuantumManagerDensityFock(QuantumManager):
         new_state = None
         result = 0
 
+        if verbose:
+            print("state tuple is:, len(keys)", len(keys))
+            for i in state_tuple:
+                print(' '.join(format(abs(f), '.2f') for f in i))
+
         # calculate meas probabilities and projected states
         if len(keys) == 1:
             if len(all_keys) == 1:
@@ -625,6 +630,12 @@ class QuantumManagerDensityFock(QuantumManager):
             states, probs = \
                 measure_multiple_with_cache_fock_density(state_tuple, indices, len(all_keys), povm_tuple,
                                                          self.truncation)
+            if verbose:
+                print("probs:", probs)
+                for state in states:
+                    print("next_state:")
+                    for i in state:
+                        print(' '.join(format(abs(f), '.2f') for f in i))
 
         # calculate result based on measurement sample.
         prob_sum = cumsum(probs)
@@ -692,7 +703,7 @@ class QuantumManagerDensityFock(QuantumManager):
 
         return kraus_ops
 
-    def add_loss(self, key, loss_rate):
+    def add_loss(self, key, loss_rate, verbose = False):
         """Method to apply generalized amplitude damping channel on a *single* subspace corresponding to `key`.
 
         Args:
@@ -706,5 +717,6 @@ class QuantumManagerDensityFock(QuantumManager):
 
         for kraus_op in kraus_ops:
             output_state += kraus_op @ prepared_state @ kraus_op.conj().T
-
+        if verbose:
+            print(output_state)
         self.set(all_keys, output_state)

@@ -600,25 +600,34 @@ class ClassicalChannel(OpticalChannel):
                   cp.array(self.params["RAMAN_COEFFICIENTS"], dtype = cp.float64),
                   self.params["NBF_BANDWIDTH"],
                   self.params["QUNATUM_ATTENUATION"],
-                  c/((self.params["CLASSICAL_RATE"]/2)*1e12)/1e3,
+                  c/((self.params["CLASSICAL_RATE"]/2))/1e3,
                   cp.array(self.params["CLASSICAL_ATTENUATION"], dtype = cp.float64),
                   self.params["DIST_ANL_ERC"] * 1000 / c,
                   h, c, 
-                  self.params["QUANTUM_WAVELENGTH"],
+                  self.params["QUANTUM_WAVELENGTH"]*1e-9,
                   self.params["CLASSICAL_RATE"],
                   self.params["DIST_ANL_ERC"],
                   self.params["BSM_DET1_EFFICIENCY"],
                   self.params["QUANTUM_INDEX"],
                   cp.array(self.params["CLASSICAL_INDEX"], dtype = cp.float64),
                   max_raman_photons_per_pulse)
+
+        # print("params: ", params[3:])
+        # for i in params[3:]:
+        #     print(i)
         
         # print("transmitting classical message")
 
-        Raman_Kernel_call((limit//128+1,), (128,), params)
+        Raman_Kernel_call((limit//512+1,), (512,), params)
 
-        print("Transmitted classical message")
+        cp.cuda.runtime.deviceSynchronize()
+
+        # print("Transmitted classical message")
 
         # print("Noisy photons are:", noise_photons)
+
+        # print("raman noise photons:")
+        # print(noise_photons[:5])
 
         # future_time = self.timeline.now() + self.delay
         process = Process(self.receiver, "receive_qubit", [self.sender.name, cp.asnumpy(noise_photons)])
@@ -630,7 +639,6 @@ class ClassicalChannel(OpticalChannel):
             process = Process(self, "transmit_classical_message", [])
             event = Event(self.timeline.now()+self.params["COMMS_WINDOW_SIZE"], process)
             self.timeline.schedule(event)
-
         # return cp.asarray(noise_photons)
 
 
@@ -642,7 +650,7 @@ class ClassicalChannel(OpticalChannel):
         # direction = []
         direction_list = []
 
-        last_bit = int(self.params["COMMS_WINDOW_SIZE"]*self.params["CLASSICAL_RATE"])
+        last_bit = int(self.params["COMMS_WINDOW_SIZE"]*self.params["CLASSICAL_RATE"]/1e12)
         # print("Last bit is:", last_bit)
         present_bit = 0
         time_up_flag = False

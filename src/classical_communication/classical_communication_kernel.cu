@@ -45,13 +45,13 @@ double distance, double collection_probability, double quantum_channel_index, do
 
     int symbol_number = blockDim.x * blockIdx.x + threadIdx.x;
     
-    // if (thread_ID == 0){
+    // if (symbol_number == 0){
     //     printf("limit : %d\n", limit);
-    //     printf("raman_coefficient : %.5e\n", raman_coefficient);
+    //     printf("raman_coefficient : %.5e\n", raman_coefficient[0]);
     //     printf("narrow_band_filter_bandwidth : %.5e\n", narrow_band_filter_bandwidth);
     //     printf("quantum_channel_attenuation : %.5e\n", quantum_channel_attenuation);
     //     printf("pulse_width : %.5e\n", pulse_width);
-    //     printf("classical_channel_attenuation : %.5e\n", classical_channel_attenuation);
+    //     printf("classical_channel_attenuation : %.5e\n", classical_channel_attenuation[0]);
     //     printf("window_size : %.5e\n", window_size);
     //     printf("h : %.5e\n", h);
     //     printf("c : %.5e\n", c);
@@ -85,7 +85,9 @@ double distance, double collection_probability, double quantum_channel_index, do
                               quantum_channel_wavelength * quantum_channel_index / 
                               (h*c*(c/1000)*classical_attenuation*classical_attenuation);
         
+        // printf("1st: %3.2e\n", (h*c*(c/1000)*classical_attenuation*classical_attenuation));
         // printf("mean_num_photons: %3.2e\n", mean_num_photons);
+
         // double mean_num_photons = (raman_energy / (h * c / quantum_channel_wavelength));
         int num_photons_added = curand_poisson(&state, mean_num_photons);
 
