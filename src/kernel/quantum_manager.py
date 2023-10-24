@@ -606,7 +606,7 @@ class QuantumManagerDensityFock(QuantumManager):
         result = 0
 
         if verbose:
-            print("state tuple is:, len(keys)", len(keys))
+            print("Input state tuple is:, len(keys)", len(keys))
             for i in state_tuple:
                 print(' '.join(format(abs(f), '.2f') for f in i))
 
@@ -633,9 +633,12 @@ class QuantumManagerDensityFock(QuantumManager):
             if verbose:
                 print("probs:", probs)
                 for state in states:
-                    print("next_state:")
-                    for i in state:
-                        print(' '.join(format(abs(f), '.2f') for f in i))
+                    print("Possible next_state:")
+                    try:
+                        for i in state:
+                            print(' '.join(format(abs(f), '.2f') for f in i))
+                    except:
+                        print(state)
 
         # calculate result based on measurement sample.
         prob_sum = cumsum(probs)
@@ -668,6 +671,12 @@ class QuantumManagerDensityFock(QuantumManager):
             remaining_state = density_partial_trace(new_state_tuple, indices, len(all_keys), self.truncation)
             remaining_keys = [key for key in all_keys if key not in keys]
             self.set(remaining_keys, remaining_state)
+
+        if verbose:
+            print("Actual result:")
+            for i in remaining_state:
+                print(' '.join(format(abs(f), '1.2e') for f in i))
+
 
         # print("time taken:", time.time() - start)
         return result

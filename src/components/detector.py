@@ -54,7 +54,7 @@ class Detector(Entity):
     _meas_circuit.measure(0)
 
     def __init__(self, name: str, timeline: "Timeline", efficiency=0.9, dark_count=0, count_rate=int(25e6),
-                 time_resolution=450):
+                 time_resolution=10, temporal_coincidence_window = 450, dead_time = 7000):
         Entity.__init__(self, name, timeline)  # Detector is part of the QSDetector, and does not have its own name
         self.efficiency = efficiency
         self.dark_count = dark_count  # measured in 1/s
@@ -62,6 +62,8 @@ class Detector(Entity):
         self.time_resolution = time_resolution  # measured in ps
         self.next_detection_time = -1
         self.photon_counter = 0
+        self.temporal_coincidence_window = temporal_coincidence_window
+        self.dead_time = dead_time
 
     def init(self):
         """Implementation of Entity interface (see base class)."""
@@ -81,6 +83,23 @@ class Detector(Entity):
         """
 
         self.photon_counter += 1
+
+        num_photons = 0
+        if type(photon) == np.ndarray:
+            # print("time of getting raman photons:", self.timeline.now())
+            # print("photon is:")
+            # print(photon)
+            for pulse in photon:
+                for detection_time in pulse:
+                    if detection_time == 0:
+                        break
+                    num_photons += 1
+                    process = Process(self, "record_detection", [])
+                    event = Event(self.timeline.now()+detection_time, process)
+                    self.timeline.schedule(event)
+                    # print("Raman photon time:", self.timeline.now()+detection_time)
+            print("number of raman photons are:", num_photons)
+            return
 
         # if get a photon and it has single_atom encoding, measure
         if photon and photon.encoding_type["name"] == "single_atom":
@@ -125,18 +144,21 @@ class Detector(Entity):
 
         now = self.timeline.now()
         # print("recording measurement at detector class")
+        # print("recording detection at:", now)
 
         if now > self.next_detection_time:
             time = round(now / self.time_resolution) * self.time_resolution
             self.notify({'time': time})
-            self.next_detection_time = now + (1e12 / self.count_rate)  # period in ps
+            self.next_detection_time = now + self.dead_time # (1e12 / self.count_rate)  # Multiplied by 4 to give us a dead time of 5ns since SPDC frequency is 8e8 -> 1250ps dead time. 
+            # print("detection at:", now, "next detection time:", self.next_detection_time)
         # else:
+        #     print("rejected in dead time")
             # if self.name == "Eckhardt Research Center Measurement3.bs.detector1":
                 # print("Dark count reject at detector:", self.name)
 
     def notify(self, info: Dict[str, Any]):
         """Custom notify function (calls `trigger` method)."""
-
+        # self._observers list is populated using the attach method of the entity class. 
         for observer in self._observers:
             observer.trigger(self, info)
 
@@ -161,6 +183,7 @@ class QSDetector(Entity, ABC):
         self.trigger_times = []
 
     def init(self):
+        # The init method is run when we call timeline.init() for all the entities in the simulator. 
         for component in self.components:
             component.attach(self)
             component.owner = self.owner
@@ -498,6 +521,49 @@ class QSDetectorFockInterference(QSDetector):
 
         return create1, destroy1, create2, destroy2
 
+    # def _generate_povms(self):
+    #     """Method to generate POVM operators corresponding to photon detector having 00, 01, 10 and 11 click(s).
+
+    #     Will be used to generated outcome probability distribution.
+    #     """
+
+    #     # assume using Fock quantum manager
+    #     truncation = self.timeline.quantum_manager.truncation
+    #     create1, destroy1, create2, destroy2 = self._generate_transformed_ladders()
+
+    #     # print("dimensions of create1:", type(create1), len(create1))
+
+    #     # for detector1 (index 0)
+        
+    #     # In effect, this is: 
+    #     #   -1^(i) * [ a_dagger^(i+1) @ a^(i+1) ] / (i+1)! 
+    #     # and, we sum this over all possible number of photons n in the truncation assumed. See paper. Formula used directly.  
+    #     series_elem_list1 = [(-1)**i * fractional_matrix_power(create1, i+1).dot(
+    #         fractional_matrix_power(destroy1, i+1)) / factorial(i+1) for i in range(truncation)]
+        
+    #     povm1_1 = sum(series_elem_list1)
+    #     povm0_1 = eye((truncation+1) ** 2) - povm1_1
+
+
+        
+    #     # for detector2 (index 1)
+    #     series_elem_list2 = [(-1)**i * fractional_matrix_power(create2, i+1).dot(
+    #         fractional_matrix_power(destroy2,i+1)) / factorial(i+1) for i in range(truncation)]
+    #     povm1_2 = sum(series_elem_list2)
+    #     povm0_2 = eye((truncation+1) ** 2) - povm1_2
+
+    #     # POVM operators for 4 possible outcomes
+    #     # Note: povm01 and povm10 are relevant to BSM
+    #     povm00 = povm0_1 @ povm0_2
+    #     povm01 = povm0_1 @ povm1_2
+    #     povm10 = povm1_1 @ povm0_2
+    #     povm11 = povm1_1 @ povm1_2
+
+    #     # print("dimensions of POVMs:", type(povm11), len(povm11))
+
+    #     self.povms = [povm00, povm01, povm10, povm11]
+
+
     def _generate_povms(self):
         """Method to generate POVM operators corresponding to photon detector having 00, 01, 10 and 11 click(s).
 
@@ -529,16 +595,30 @@ class QSDetectorFockInterference(QSDetector):
         povm1_2 = sum(series_elem_list2)
         povm0_2 = eye((truncation+1) ** 2) - povm1_2
 
-        # POVM operators for 4 possible outcomes
+        identity = eye((truncation+1) ** 2)
+        
+
+        # POVM operators for 4 possible outcomes (When both detectors active)
         # Note: povm01 and povm10 are relevant to BSM
         povm00 = povm0_1 @ povm0_2
         povm01 = povm0_1 @ povm1_2
         povm10 = povm1_1 @ povm0_2
         povm11 = povm1_1 @ povm1_2
 
-        # print("dimensions of POVMs:", type(povm11), len(povm11))
+        # POVM when detector 1 off:
+        povm_0 = identity @ povm0_2
+        povm_1 = identity @ povm1_2
 
-        self.povms = [povm00, povm01, povm10, povm11]
+        # POVM when detector 2 off:
+        povm0_ = povm0_1 @ identity
+        povm1_ = povm1_1 @ identity
+
+        # POVM when both detectors are off:
+        povm = identity
+
+        self.povms = [[povm00, povm01, povm10, povm11], [povm0_, povm1_], [povm_0, povm_1], [povm]]
+
+
 
     def get(self, photon, **kwargs):
         # print("type of array:", type(photon))
@@ -579,6 +659,7 @@ class QSDetectorFockInterference(QSDetector):
         # print("new photon arrived")
         # print("regula photon time:", self.timeline.now())
         src = kwargs["src"]
+        # print("photon received from", src)
         assert photon.encoding_type["name"] == "fock", "Photon must be in Fock representation."
         input_port = self.src_list.index(src)  # determine at which input the Photon arrives, an index
         # record arrival time
@@ -604,7 +685,20 @@ class QSDetectorFockInterference(QSDetector):
             # determine the outcome
             samp = self.get_generator().random()  # random measurement sample
             # print("dimensions of POVMs:", type(self.povms), len(self.povms[0]))
-            result = self.timeline.quantum_manager.measure([key0, key1], self.povms, samp, verbose = False)
+            # print("Arrival time:", arrival_time)
+            index = 0
+            if self.detectors[1].next_detection_time > arrival_time:
+                index += 1
+            if self.detectors[0].next_detection_time > arrival_time:
+                index += 2    
+            # print("index of detection:", index)
+            # if index != 0:
+                # print("index is:", index)
+
+            verbose = False
+            # if  self.name == "BSMNode.bsm": verbose = True
+
+            result = self.timeline.quantum_manager.measure([key0, key1], self.povms[index], samp, verbose)
 
             assert result in list(range(len(self.povms))), "The measurement outcome is not valid."
             # print("self.name:", self.name)
@@ -817,18 +911,18 @@ class PULSE_Detector(Entity):
         return PulseTrain(arrival_times, duration, None)
 
 
-              
-
     def sort_remove_dead_counts(self, pulse_train, dead_time, prev_dead_time):
         """ This method sorts the detections and removes the detections which are too close for the detector dead time"""
         
-        def GPU_sort(pulse_train):
-            GPU_pulse_train = cp.asarray(pulse_train)
-            GPU_sorted_pulse_train = cp.sort(GPU_pulse_train)
-            return cp.asnumpy(GPU_sorted_pulse_train)
+        # Commenting out to remove warnings about Jit and cupy
+
+        # def GPU_sort(pulse_train):
+        #     GPU_pulse_train = cp.asarray(pulse_train)
+        #     GPU_sorted_pulse_train = cp.sort(GPU_pulse_train)
+        #     return cp.asnumpy(GPU_sorted_pulse_train)
 
         # Sorting the array using a GPU for performance. Intsead of sorting this, we can merge this using parallelised algorithms
-        sorted_pulse_train = GPU_sort(pulse_train)
+        # sorted_pulse_train = GPU_sort(pulse_train)
 
         # Remove the detections which lie in the dead time of the previous batch
         i = 0
@@ -838,7 +932,7 @@ class PULSE_Detector(Entity):
         sorted_pulse_train = sorted_pulse_train[i:]
 
         # Removal of dark counts is done by JIT compiling the actual method and executing the kernel.
-        @jit(parallel = True, nopython = True)
+        # @jit(parallel = True, nopython = True)
         def remove_dark_counts(sorted_pulse_train):
             mask = np.ones(len(sorted_pulse_train))
             i = 0

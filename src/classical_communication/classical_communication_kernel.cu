@@ -80,7 +80,10 @@ double distance, double collection_probability, double quantum_channel_index, do
         // printf("term: %3.2e\n", quantum_channel_wavelength);
 
         // See calculations for how this equation comes about. 
-        double mean_num_photons = classical_powers[direction*4 + bits[symbol_number*2]*2 + bits[symbol_number*2+1]] * raman_coefficient[direction]* narrow_band_filter_bandwidth * 
+
+        // printf("classical power: %3.2e, symbol number: %d\n", classical_powers[direction*4 + bits[symbol_number*2]*2 + bits[symbol_number*2+1]], symbol_number);
+
+        double mean_num_photons = 2.2*classical_powers[direction*4 + bits[symbol_number*2]*2 + bits[symbol_number*2+1]] * raman_coefficient[direction]* narrow_band_filter_bandwidth * 
                               4 * exp(-classical_attenuation * distance/2) * sinh(classical_attenuation*pulse_width/2) * sinh(classical_attenuation*(distance-pulse_width)/2) * 
                               quantum_channel_wavelength * quantum_channel_index / 
                               (h*c*(c/1000)*classical_attenuation*classical_attenuation);
@@ -92,7 +95,7 @@ double distance, double collection_probability, double quantum_channel_index, do
         int num_photons_added = curand_poisson(&state, mean_num_photons);
 
         // printf("num_photons_added: %d\n", num_photons_added);
-
+        // printf("symbol time: %lf\n", (symbol_number/(classical_rate/(2*1e12))));
         for (int i = 0; i<num_photons_added; i++) {
 
             classical_travel = -1/(classical_attenuation) * log(curand_uniform(&state) * (exp(-distance*classical_attenuation) - 1) + 1);
@@ -115,7 +118,9 @@ double distance, double collection_probability, double quantum_channel_index, do
             // becomes our decision. If 0^(GIF(U*(1/p))) == 1: Accept, else, its value = 0 and hence, reject. 
             // Here, we are considering both, the probability of transmission and the probability of the photon
             // actually getting detected.           
-            detection_time = (symbol_number/(classical_rate/2) + (classical_travel*1000 / classical_speed + quantum_travel*1000 / quantum_speed) * 1e12);
+            detection_time = (symbol_number/(classical_rate/(2*1e12)) + (classical_travel*1000 / classical_speed + quantum_travel*1000 / quantum_speed) * 1e12);
+
+            // printf("total_travel: %lf\n", (classical_travel+quantum_travel));
 
             noise_photons[symbol_number * max_raman_photons_per_pulse + num_writes] = detection_time;
             num_writes += 1*decision;

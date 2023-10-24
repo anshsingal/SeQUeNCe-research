@@ -177,6 +177,7 @@ class SPDCSource(LightSource):
         log.logger.info("SPDC sourcee {} emitting {} photons".format(self.name, len(state_list)))
 
         time = self.timeline.now()
+        print("mpn:", self.mean_photon_num)
 
         if self.encoding_type["name"] == "fock":
             # Use Fock encoding.

@@ -2,7 +2,7 @@ from typing import Callable
 import numpy as np
 
 from src.kernel.timeline import Timeline
-from src.components.detector import QSDetectorFockDirect, QSDetectorFockInterference
+from src.components.detector import QSDetectorFockDirect, QSDetectorFockInterference, Detector
 from src.components.light_source import SPDCSource
 from src.components.memory import AbsorptiveMemory
 from src.components.photon import Photon
@@ -124,7 +124,7 @@ class EntangleNode(Node):
         self.add_component(bsm)
         bsm.attach(self)
         self.set_first_component(self.bsm_name)
-        self.resolution = max([d.time_resolution for d in bsm.detectors])
+        self.temporal_coincidence_window = max([d.temporal_coincidence_window for d in bsm.detectors])
 
         # detector parameter setup
         bsm.set_detector(0, efficiency=BSM_DET1_EFFICIENCY, count_rate=SPDC_FREQUENCY, dark_count=BSM_DET1_DARK)
@@ -148,7 +148,7 @@ class EntangleNode(Node):
 
         # The detector_name is a misleading title. it is actually the BSM name. We are getting detections from both detectors.
         trigger_times = self.components[detector_name].get_photon_times()
-
+        # print("trigger_times:", trigger_times)
 
         # print("len of trigger times (BSM node):", len(trigger_times[0]), len(trigger_times[1]))
 
@@ -160,17 +160,21 @@ class EntangleNode(Node):
         for time in trigger_times[0]:
             closest_bin = int(round((time - start_time) * frequency * 1e-12))
             expected_time = (float(closest_bin) * 1e12 / frequency) + start_time
-            if abs(expected_time - time) < self.resolution and 0 <= closest_bin < num_bins:
+            if abs(expected_time - time) < self.temporal_coincidence_window and 0 <= closest_bin < num_bins:
                 return_res[closest_bin] += 1
+                # print("1 at", closest_bin)
             else:
+                # print("time diff:", abs(expected_time - time), "closest_bin:", closest_bin)
                 num_rejects_0 += 1
 
         for time in trigger_times[1]:
             closest_bin = int(round((time - start_time) * frequency * 1e-12))
             expected_time = (float(closest_bin) * 1e12 / frequency) + start_time
-            if abs(expected_time - time) < self.resolution and 0 <= closest_bin < num_bins:
+            if abs(expected_time - time) < self.temporal_coincidence_window and 0 <= closest_bin < num_bins:
                 return_res[closest_bin] += 2
+                # print("2 at", closest_bin)
             else:
+                # print("time diff:", abs(expected_time - time), "closest_bin:", closest_bin)
                 num_rejects_1 += 1
 
         print("len of trigger times (BSM node):", len(trigger_times[0]), len(trigger_times[1]), "BSM num_rejects:", num_rejects_0, num_rejects_1)
@@ -195,7 +199,7 @@ class MeasureNode(Node):
         self.set_first_component(self.direct_detector_name)
 
         # time resolution of SPDs
-        self.resolution = max([d.time_resolution for d in direct_detector.detectors + bs_detector.detectors])
+        self.temporal_coincidence_window = max([d.temporal_coincidence_window for d in direct_detector.detectors + bs_detector.detectors])
 
         # detector parameter setup
         direct_detector.set_detector(0, efficiency=MEAS_DET1_EFFICIENCY, count_rate=SPDC_FREQUENCY, dark_count=MEAS_DET1_DARK)
@@ -223,6 +227,7 @@ class MeasureNode(Node):
         """
         # print("start time is:", start_time, "bin width:", 1/(frequency*1e12))
         trigger_times = self.components[detector_name].get_photon_times()
+        # print("trigger_times:", trigger_times)
         # print("len of trigger times (Measure node):", len(trigger_times[0]), len(trigger_times[1]))
         return_res = [0] * num_bins
 
@@ -237,8 +242,9 @@ class MeasureNode(Node):
             expected_time = (float(closest_bin) * 1e12 / frequency) + start_time
             # print("closest bin:", closest_bin)
             
-            if abs(expected_time - time) < self.resolution and 0 <= closest_bin < num_bins:
+            if abs(expected_time - time) < self.temporal_coincidence_window and 0 <= closest_bin < num_bins:
                 return_res[closest_bin] += 1
+                # print("1 at", closest_bin)
             else:
                 num_rejects_0 += 1
                 # print("actual_time:", time, "expected_time", expected_time, "error:", abs(expected_time - time), "closest_bin:", closest_bin )
@@ -248,8 +254,9 @@ class MeasureNode(Node):
         for time in trigger_times[1]:
             closest_bin = int(round((time - start_time) * frequency * 1e-12))
             expected_time = (float(closest_bin) * 1e12 / frequency) + start_time
-            if abs(expected_time - time) < self.resolution and 0 <= closest_bin < num_bins:
+            if abs(expected_time - time) < self.temporal_coincidence_window and 0 <= closest_bin < num_bins:
                 return_res[closest_bin] += 2
+                # print("2 at", closest_bin)
             else:
                 num_rejects_1 += 1
                 # print("actual_time:", time, "expected_time", expected_time, "error:", abs(expected_time - time), "closest_bin:", closest_bin )
@@ -258,3 +265,67 @@ class MeasureNode(Node):
         print("len of trigger times (Measure node):", len(trigger_times[0]), len(trigger_times[1]), "MEAS num_rejects:", num_rejects_0, num_rejects_1)
 
         return return_res
+
+
+class RamanCharacterizationNode(Node):
+    def __init__(self, name: str, timeline: "Timeline", params):
+        super().__init__(name, timeline)
+
+        self.detections = 0
+
+        self.detector = Detector(name = self.name+".detector", timeline = timeline, efficiency = params["BSM_DET1_EFFICIENCY"], dark_count = params["DARK_COUNTS"], time_resolution=params["RESOLUTION"], temporal_coincidence_window = params["TEMPORAL_COINCIDENCE_WINDOW"], dead_time=params["DEAD_TIME"])
+        self.add_component(self.detector)
+        self.detector.attach(self)
+
+        self.first_component_name = self.detector.name
+
+        self.fiber_spool = add_classical_channel(self, self, timeline, distance = params["DISTANCE"], params = params)
+
+    def start(self):
+        self.fiber_spool.start_classical_communication()
+
+    def trigger(self, detector, info):
+        self.detections += 1
+
+
+class WDMRelayNode(Node):
+    def __init__(self, name, timeline, bsm_name, start_classical_communication = False):
+        super().__init__(name, timeline)
+        self.bsm_name = bsm_name
+        self.start_classical_communication = start_classical_communication
+
+    def get(self, photon: "Photon", **kwargs):
+        # print("WDMRelay node sending")
+        if self.start_classical_communication and not self.cchannels[self.receiver].classical_communication_running:
+            self.cchannels[self.bsm_name].start_classical_communication()
+        self.send_qubit(self.bsm_name, photon)
+
+
+class ValidationNode(Node):
+    def __init__(self, name: str, timeline: "Timeline", params, BSM, meas_name):
+        super().__init__(name, timeline)
+
+        self.meas_name = meas_name
+        self.BSM = BSM
+
+        self.spdc_name = name + ".spdc_source"
+        spdc = SPDCSource(self.spdc_name, timeline, wavelengths=[params["RETAINED_WAVELENGTH"], params["QUANTUM_WAVELENGTH"]],
+                          frequency=params["SPDC_FREQUENCY"], mean_photon_num=params["MEAN_PHOTON_NUM"])
+
+        self.add_component(spdc)
+
+        self.params = params
+
+        self.num_output = params["MODE_NUM"]
+        spdc.add_receiver(self)
+        spdc.add_receiver(self)
+
+    def start(self):
+        states = [None] * self.num_output
+        self.components[self.spdc_name].emit(states)
+
+    def get(self, photon: "Photon", **kwargs):
+        if photon.wavelength == self.params["RETAINED_WAVELENGTH"]:
+            self.BSM.get(photon, src = self.name)
+        else:
+            self.send_qubit(self.meas_name, photon)

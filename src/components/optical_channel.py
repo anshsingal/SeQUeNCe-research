@@ -339,11 +339,11 @@ class QuantumChannel(OpticalChannel):
         self.loss = 1
         self.frequency = frequency  # maximum frequency for sending qubits (measured in Hz)
         self.send_bins = []
+        self.refractive_index = refractive_index
 
     def init(self) -> None:
         """Implementation of Entity interface (see base class)."""
-
-        self.delay = round(self.distance*1000 / self.light_speed)
+        self.delay = round(self.distance*1000 / (self.light_speed))
         self.loss = 1 - 10 ** (self.distance * self.attenuation / -10)
 
     def set_ends(self, sender: "Node", receiver: str) -> None:
@@ -384,6 +384,9 @@ class QuantumChannel(OpticalChannel):
         assert self.delay >= 0 and self.loss < 1, \
             "QuantumChannel init() function has not been run for {}".format(self.name)
         assert source == self.sender
+
+        # print("channel delay:", self.delay, "calculated delay", round(self.distance*1000 / (self.light_speed/self.refractive_index)))
+        # print(self.distance, self.light_speed, self.refractive_index)
 
         # remove lowest time bin
         if len(self.send_bins) > 0:
@@ -556,7 +559,9 @@ class ClassicalChannel(OpticalChannel):
         # print("sender index:", self.sender_index)
         self.pcap = PcapNgReader("src/classical_communication/pcap_files/SeQUeNCe-%s-0.pcap" % (self.sender_index))
         self.classical_communication_running = True
+        self.initial_start_time = self.timeline.now()
         self.transmit_classical_message()
+        
 
 
     def transmit_classical_message(self):
@@ -599,14 +604,14 @@ class ClassicalChannel(OpticalChannel):
                   cp.array(self.params["CLASSICAL_POWERS"], dtype = cp.float64),
                   cp.array(self.params["RAMAN_COEFFICIENTS"], dtype = cp.float64),
                   self.params["NBF_BANDWIDTH"],
-                  self.params["QUNATUM_ATTENUATION"],
+                  self.params["QUNATUM_ATTENUATION"] * np.log(10)/10,
                   c/((self.params["CLASSICAL_RATE"]/2))/1e3,
-                  cp.array(self.params["CLASSICAL_ATTENUATION"], dtype = cp.float64),
-                  self.params["DIST_ANL_ERC"] * 1000 / c,
+                  cp.array(self.params["CLASSICAL_ATTENUATION"], dtype = cp.float64) * np.log(10)/10,
+                  self.distance * 1000 / c,
                   h, c, 
                   self.params["QUANTUM_WAVELENGTH"]*1e-9,
                   self.params["CLASSICAL_RATE"],
-                  self.params["DIST_ANL_ERC"],
+                  self.distance,
                   self.params["BSM_DET1_EFFICIENCY"],
                   self.params["QUANTUM_INDEX"],
                   cp.array(self.params["CLASSICAL_INDEX"], dtype = cp.float64),
@@ -630,12 +635,14 @@ class ClassicalChannel(OpticalChannel):
         # print(noise_photons[:5])
 
         # future_time = self.timeline.now() + self.delay
+        # print("noise_photons:", noise_photons)
         process = Process(self.receiver, "receive_qubit", [self.sender.name, cp.asnumpy(noise_photons)])
         event = Event(self.timeline.now(), process)
         self.timeline.schedule(event)
 
         # print("type of index:", self.params["classical_communication_window_size"])
-        if self.timeline.now()+self.params["COMMS_WINDOW_SIZE"] < self.params["COMMS_WINDOW_SIZE"]:
+        if self.timeline.now()+self.params["COMMS_WINDOW_SIZE"] < self.initial_start_time+self.params["TOTAL_COMM_SIZE"]:
+            print("next time:", (self.timeline.now()+self.params["COMMS_WINDOW_SIZE"])/1e9, "/", (self.initial_start_time+self.params["TOTAL_COMM_SIZE"])/1e9)
             process = Process(self, "transmit_classical_message", [])
             event = Event(self.timeline.now()+self.params["COMMS_WINDOW_SIZE"], process)
             self.timeline.schedule(event)
@@ -650,12 +657,20 @@ class ClassicalChannel(OpticalChannel):
         # direction = []
         direction_list = []
 
-        last_bit = int(self.params["COMMS_WINDOW_SIZE"]*self.params["CLASSICAL_RATE"]/1e12)
-        # print("Last bit is:", last_bit)
+        last_bit = int(self.params["COMMS_WINDOW_SIZE"]*self.params["CLASSICAL_RATE"]/1e12) 
+
+        print("Last bit is:", last_bit)
         present_bit = 0
         time_up_flag = False
         # print("last_bit:", last_bit)
         # print("time at classical communication:", self.timeline.now())
+
+        if self.params["MODULATION"] == 'PSK':
+            bit_list = np.ones(last_bit)
+            direction_list = BitArray(np.ones(last_bit) * self.params["DIRECTION"])
+            self.params["CLASSICAL_POWERS"] = [[np.mean(powers)]*4 for powers in self.params["CLASSICAL_POWERS"]]
+            return direction_list, bit_list
+
         while present_bit < last_bit:
             if len(self.bits[int(self.bit_number):])+present_bit < last_bit:
                 bit_list.extend(self.bits[self.bit_number:])
@@ -678,11 +693,13 @@ class ClassicalChannel(OpticalChannel):
                     self.pcap = PcapNgReader("src/classical_communication/pcap_files/SeQUeNCe-%s-0.pcap" % (self.sender_index))
                     continue
                 self.bit_number = 0
-                # Direction is True if the sender is not the destination. Hence, forward communication when direction == 1
-                self.direction = (packet.dst != "10.1.1.%s" % (int(self.sender_index)+1)) # This could be handled more elegenatly by keeping PCAP file names as IP addresses
-                                                            # Note here that we are tagging only the packet's direction and not every bit. We cannot discern which "1" bit is
-                                                            # in which direction. It has been included only for use in future development.
-                # print("direction is:", self.direction)
+                if self.params["DIRECTION"] == None:
+                    # Direction is True if the sender is not the destination. Hence, forward communication (Co-propagation) when direction == 1
+                    self.direction = (packet.dst != "10.1.1.%s" % (int(self.sender_index)+1)) # This could be handled more elegenatly by keeping PCAP file names as IP addresses
+                                                                # Note here that we are tagging only the packet's direction and not every bit. We cannot discern which "1" bit is
+                                                                # in which direction. It has been included only for use in future development.
+                else:
+                    self.direction = self.params["DIRECTION"]
                 
                 self.bits = BitArray(raw(packet))
         
