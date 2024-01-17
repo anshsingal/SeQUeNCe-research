@@ -321,7 +321,7 @@ class QuantumChannel(OpticalChannel):
     """
 
     def __init__(self, name: str, timeline: "Timeline", attenuation: float, distance: int, 
-                 polarization_fidelity=1.0, light_speed=3e-4, frequency=8e7, refractive_index = 1.47):
+                 polarization_fidelity=1.0, light_speed=3e-4, frequency=8e7, refractive_index = 1.47, density_matrix_tacking = False):
         """Constructor for Quantum Channel class.
 
         Args:
@@ -340,6 +340,7 @@ class QuantumChannel(OpticalChannel):
         self.frequency = frequency  # maximum frequency for sending qubits (measured in Hz)
         self.send_bins = []
         self.refractive_index = refractive_index
+        self.density_matrix_tacking = density_matrix_tacking
 
     def init(self) -> None:
         """Implementation of Entity interface (see base class)."""
@@ -385,6 +386,8 @@ class QuantumChannel(OpticalChannel):
             "QuantumChannel init() function has not been run for {}".format(self.name)
         assert source == self.sender
 
+        # print("transmit photon at", self.name, end = ' ')
+
         # print("channel delay:", self.delay, "calculated delay", round(self.distance*1000 / (self.light_speed/self.refractive_index)))
         # print(self.distance, self.light_speed, self.refractive_index)
 
@@ -408,6 +411,15 @@ class QuantumChannel(OpticalChannel):
             event = Event(future_time, process)
             self.timeline.schedule(event)
 
+        elif self.density_matrix_tacking and (qubit.encoding_type["name"] == "polarization"):
+            # qubit.add_loss(self.loss)
+            qubit.random_noise(self.get_generator())
+            future_time = self.timeline.now() + self.delay
+            process = Process(self.receiver, "receive_qubit", [source.name, qubit])
+            event = Event(future_time, process)
+            self.timeline.schedule(event)
+
+
         # if not using Fock representation, check if photon kept
         elif (self.sender.get_generator().random() > self.loss) or qubit.is_null:
             if self._receiver_on_other_tl():
@@ -418,8 +430,8 @@ class QuantumChannel(OpticalChannel):
                 qubit.add_loss(self.loss)
 
             # check if polarization encoding and apply necessary noise
-            if (qubit.encoding_type["name"] == "polarization") and (
-                    self.sender.get_generator().random() > self.polarization_fidelity):
+                # print("sendong polarization photon")
+            if (qubit.encoding_type["name"] == "polarization") and (self.sender.get_generator().random() > self.polarization_fidelity):
                 qubit.random_noise(self.get_generator())
 
             # schedule receiving node to receive photon at future time determined by light speed
@@ -427,6 +439,7 @@ class QuantumChannel(OpticalChannel):
             process = Process(self.receiver, "receive_qubit", [source.name, qubit])
             event = Event(future_time, process)
             self.timeline.schedule(event)
+            # print("scheduled receive at:", future_time)
 
         # if not using Fock representation, if photon lost, exit
         else:

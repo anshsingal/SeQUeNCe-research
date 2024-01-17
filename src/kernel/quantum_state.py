@@ -13,6 +13,7 @@ from typing import Tuple, Dict, List
 
 from numpy import pi, cos, sin, arange, log, log2
 from numpy.random import Generator
+import numpy as np
 
 from .quantum_utils import *
 import scipy.sparse as sp
@@ -254,6 +255,7 @@ class FreeQuantumState(State):
         super().__init__()
         self.state = (complex(1), complex(0))
         self.entangled_states = [self]
+        self.density_matrix = False
 
     def combine_state(self, another_state: "FreeQuantumState"):
         """Method to tensor multiply two quantum states.
@@ -274,6 +276,65 @@ class FreeQuantumState(State):
             quantum_state.entangled_states = entangled_states
             quantum_state.state = new_state
 
+    # def split_states(self):
+    #     input_state = self.state
+    #     num_systems = int(log2(len(input_state)))
+    #     all_indices = list(range(num_systems)) 
+    #     tuple_state = tuple(map(tuple, outer(input_state, input_state.conj())))
+
+    #     for i in range(num_systems): # you have log2(len(state)) qubits in the quantum state. You will need logd(state) for qudits.
+    #         self.entangled_states[i].state = (density_partial_trace(tuple_state, tuple(all_indices[:i]+all_indices[i+1:]), num_systems))
+    #         self.entangled_states[i].entangled_states -= self.entangled_states
+
+    # def split_states(self):
+    #     input_state = self.state
+    #     num_systems = int(log2(len(input_state)))
+    #     all_indices = list(range(num_systems)) 
+    #     tuple_state = tuple(map(tuple, outer(input_state, input_state.conj())))
+
+    #     index = self.entangled_states.index(self)
+
+    #     for i in all_indices[:index]+all_indices[index+1:]:
+    #         self.entangled_states[i].state = density_partial_trace(tuple_state, (index,), num_systems)    
+
+    #     self.entangled_states.remove(self)
+    #     self.entangled_states = [self]
+    #     self.state = (density_partial_trace(tuple_state, tuple(all_indices[:index]+all_indices[index+1:]), num_systems))
+
+    def split_states(self):
+        input_state = np.array(self.state)
+        num_systems = int(log2(len(input_state))) # We use log base 2 here, for qubits. That may not be the case in the case of general photons. 
+        all_indices = list(range(num_systems)) 
+        if not self.density_matrix:
+            tuple_state = tuple(map(tuple, outer(input_state, input_state.conj())))
+            self.density_matrix = True
+        else:
+            tuple_state = tuple(map(tuple, input_state))
+
+        index = self.entangled_states.index(self)
+
+        new_state = tuple(map(tuple, density_partial_trace(tuple_state, (index,), num_systems)))
+
+        for i in all_indices[:index]+all_indices[index+1:]:
+            self.entangled_states[i].state = new_state
+            self.entangled_states[i].density_matrix = True
+
+        self.entangled_states.remove(self)
+        self.entangled_states = [self]
+        self.state = tuple(map(tuple, density_partial_trace(tuple_state, tuple(all_indices[:index]+all_indices[index+1:]), num_systems)))
+        # self.density_matrix = True
+
+
+    def build_kraus_ops(self, dim):
+        num_qubits = np.log2(dim)
+        kraus_ops = [None]*4
+        kraus_ops[0] = np.sqrt(1-3*self.polarization_fidelity/4) * np.array([[1,0], [0,1]])
+        kraus_ops[1] = np.sqrt(self.polarization_fidelity/4) * np.array([[0,1], [1,0]])
+        kraus_ops[2] = np.sqrt(self.polarization_fidelity/4) * np.array([[0,-1j], [1j,0]])
+        kraus_ops[3] = np.sqrt(self.polarization_fidelity/4) * np.array([[1,0], [0,-1]])
+        return kraus_ops
+
+
     def random_noise(self, rng: Generator):
         """Method to add random noise to a single state.
 
@@ -284,11 +345,21 @@ class FreeQuantumState(State):
         """
 
         # TODO: rewrite for entangled states
-        angle = rng.random() * 2 * pi
-        self.state = (complex(cos(angle)), complex(sin(angle)))
+        if self.density_matrix:
+            dim = len(self.state)
+            kraus_ops = self.build_kraus_ops(dim)
+            final_state = 0
+            for kraus_op1 in kraus_ops:
+                for kraus_op2 in kraus_ops:
+                    kraus_op = np.kron(kraus_op1, kraus_op2)
+                    final_state += kraus_op @ self.state @ kraus_op.conj()
+            self.state = final_state
+        else:
+            angle = rng.random() * 2 * pi
+            self.state = (complex(cos(angle)), complex(sin(angle)))
 
     # only for use with entangled state
-    def set_state(self, state: Tuple[complex]):
+    def set_state(self, state: Tuple[complex], density_matrix = False):
         """Method to change entangled state of multiple quantum states.
 
         Args:
@@ -300,25 +371,22 @@ class FreeQuantumState(State):
         """
 
         # check formatting of state
-        assert all([abs(a) <= 1.01 for a in state]), "Illegal value with abs > 1 in quantum state"
-        assert abs(sum([abs(a) ** 2 for a in state]) - 1) < 1e-5, "Squared amplitudes do not sum to 1"
+        if density_matrix:
+            assert all([abs(state[i,i]) <= 1.01 for i in range(len(state))]), "Illegal value with abs > 1 in quantum state"
+        else:
+            assert all([abs(a) <= 1.01 for a in state]), "Illegal value with abs > 1 in quantum state"
+        # assert abs(sum([abs(a) ** 2 for a in state]) - 1) < 1e-5, "Squared amplitudes do not sum to 1"
 
         num_qubits = log2(len(state))
-        assert 2 ** int(round(num_qubits)) == len(state), \
-            "Length of amplitudes should be 2 ** n, where n is the number of qubits. " \
-            "Actual amplitude length: {}, num qubits: {}".format(
-                len(state), num_qubits
-            )
+        assert 2 ** int(round(num_qubits)) == len(state),"Length of amplitudes should be 2 ** n, where n is the number of qubits. Actual amplitude length: {}, num qubits: {}".format(len(state), num_qubits)
+        
         num_qubits = int(round(num_qubits))
-        assert num_qubits == len(self.entangled_states), \
-            "Length of amplitudes should be 2 ** n, where n is the number of qubits. " \
-            "Num qubits in state: {}, num qubits in object: {}".format(
-                num_qubits, len(self.entangled_states)
-            )
+        assert num_qubits == len(self.entangled_states), "Length of amplitudes should be 2 ** n, where n is the number of qubits. Num qubits in state: {}, num qubits in object: {}".format(num_qubits, len(self.entangled_states))
 
         for qs in self.entangled_states:
             qs.state = state
-
+            qs.density_matrix = density_matrix 
+        self.density_matrix = density_matrix 
     # for use with single, unentangled state
     def set_state_single(self, state: Tuple[complex]):
         """Method to unentangle and set the state of a single quantum state object.
@@ -338,7 +406,7 @@ class FreeQuantumState(State):
         self.entangled_states = [self]
         self.state = state
 
-    def measure(self, basis: Tuple[Tuple[complex]], rng: Generator) -> int:
+    def measure(self, basis: Tuple[Tuple[complex]], rng: Generator, return_prob = False) -> int:
         """Method to measure a single quantum state.
 
         Args:
@@ -354,21 +422,33 @@ class FreeQuantumState(State):
         """
 
         # handle entangled case
+        if self.density_matrix:
+            self.state = tuple(map(tuple, self.state))
         if len(self.entangled_states) > 1:
             num_states = len(self.entangled_states)
             state_index = self.entangled_states.index(self)
-            state0, state1, prob = measure_entangled_state_with_cache(self.state, basis, state_index, num_states)
-            if rng.random() < prob:
-                new_state = state0
+            # state0, state1, prob = measure_entangled_state_with_cache(self.state, basis, state_index, num_states)
+            states, probs = measure_multiple_with_cache_density(self.state, 1, 1)
+            if return_prob:
+                return states, probs
+            # print("prob:", prob)
+            if rng.random() < probs[0]:
+                new_state = states[0]
                 result = 0
             else:
-                new_state = state1
+                new_state = states[1]
                 result = 1
             new_state = tuple(new_state)
 
         # handle unentangled case
         else:
             prob = measure_state_with_cache(self.state, basis)
+            # print("prob is:", np.round(prob, 4))
+            # print("prob:", prob)
+
+            if return_prob:
+                return prob
+
             if rng.random() < prob:
                 new_state = basis[0]
                 result = 0
@@ -385,7 +465,7 @@ class FreeQuantumState(State):
         return result
 
     @staticmethod
-    def measure_multiple(basis, states, rng: Generator):
+    def measure_multiple(basis, states, rng: Generator, return_states = False):
         """Method to measure multiple qubits in a more complex basis.
 
         May be used for bell state measurement.
@@ -405,8 +485,10 @@ class FreeQuantumState(State):
         # ensure states are entangled
         # (must be entangled prior to calling measure_multiple)
         entangled_list = states[0].entangled_states
+        # print("all entangled states:", type(states[0].entangled_states[0]))
         for state in states[1:]:
-            assert state in states[0].entangled_states
+            # print("sent states:", type(state))
+            assert state in entangled_list
         # ensure basis and vectors in basis are the right size
         basis_dimension = 2 ** len(states)
         assert len(basis) == basis_dimension
@@ -415,22 +497,27 @@ class FreeQuantumState(State):
 
         state = states[0].state
 
-        # move states to beginning of entangled list and quantum state
-        pos_state_0 = entangled_list.index(states[0])
-        pos_state_1 = entangled_list.index(states[1])
-        entangled_list[0], entangled_list[pos_state_0] = entangled_list[pos_state_0], entangled_list[0]
-        entangled_list[1], entangled_list[pos_state_1] = entangled_list[pos_state_1], entangled_list[1]
-        switched_state = [complex(0)] * len(state)
-        for i, coefficient in enumerate(state):
-            switched_i = swap_bits(i, pos_state_0, pos_state_1)
-            switched_state[switched_i] = coefficient
+        #################### Omiting this for now since the experiment only entangles 2 qubits at max at any time. #######
+        # # move states to beginning of entangled list and quantum state
+        # pos_state_0 = entangled_list.index(states[0])
+        # pos_state_1 = entangled_list.index(states[1])
+        # entangled_list[0], entangled_list[pos_state_0] = entangled_list[pos_state_0], entangled_list[0]
+        # entangled_list[1], entangled_list[pos_state_1] = entangled_list[pos_state_1], entangled_list[1]
+        # switched_state = [complex(0)] * len(state)
+        # for i, coefficient in enumerate(state):
+        #     switched_i = swap_bits(i, pos_state_0, pos_state_1)
+        #     switched_state[switched_i] = coefficient
+        # state = tuple(map(tuple, switched_state))
 
-        state = tuple(switched_state)
+        state = tuple(map(tuple, state))
 
         # math for probability calculations
         length_diff = len(entangled_list) - len(states)
 
-        new_states, probabilities = measure_multiple_with_cache(state, basis, length_diff)
+        # new_states, probabilities = measure_multiple_with_cache(state, basis, length_diff)
+        new_states, probabilities = measure_multiple_with_cache_density(state, len(states), length_diff)
+        if return_states:
+            return new_states, probabilities
 
         possible_results = arange(0, basis_dimension, 1)
         # result gives index of the basis vector that will be projected to

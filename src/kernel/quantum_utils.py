@@ -24,17 +24,27 @@ def measure_state_with_cache(state: Tuple[complex, complex], basis: Tuple[Tuple[
 
     state = array(state)
     u = array(basis[0], dtype=complex)
+    v = array(basis[1], dtype=complex)
     # measurement operator
     M0 = outer(u.conj(), u)
+    M1 = outer(v.conj(), v)
 
     # probability of measuring basis[0]
-    prob_0 = (state.conj().transpose() @ M0.conj().transpose() @ M0 @ state).real
+    if array(state).ndim == 2:
+        prob_0 = trace(state @ M0)
+        prob_1 = trace(state @ M1)
+        return prob_0 + prob_1
+    else:
+        prob_0 = (state.conj().transpose() @ M0.conj().transpose() @ M0 @ state).real
+        prob_1 = (state.conj().transpose() @ M1.conj().transpose() @ M1 @ state).real
+
     return prob_0
 
 
+# This function is prblematic. It assues that the basis provided will necessarily be orthogonal to each other.
+# Hence, it assumes that the net proection is 1. This isnt true, both in terms of the operator and state.
 @lru_cache(maxsize=1000)
-def measure_entangled_state_with_cache(state: Tuple[complex], basis: Tuple[Tuple[complex]], state_index: int,
-                                       num_states: int) -> \
+def measure_entangled_state_with_cache(state: Tuple[complex], basis: Tuple[Tuple[complex]], state_index: int, num_states: int) -> \
         Tuple[array, array, float]:
 
     state = array(state)
@@ -139,7 +149,6 @@ def measure_entangled_state_with_cache_ket(state: Tuple[complex], state_index: i
         state0 = (projector0 @ state) / sqrt(prob_0)
 
     return state0, state1, prob_0
-
 
 @lru_cache(maxsize=1000)
 def measure_multiple_with_cache_ket(state: Tuple[complex], num_states: int, length_diff: int) \
@@ -415,3 +424,36 @@ def density_partial_trace(state: Tuple[Tuple[complex]], indices: Tuple[int], num
     output_dim = (truncation + 1) ** (num_systems - len(indices))
     output_state = temp.reshape((output_dim, output_dim))
     return output_state
+
+
+@lru_cache(maxsize=1000)
+def measure_complete_polarization_entangled_state_with_cache(state: Tuple[complex], state_index: int, num_states: int) -> Tuple[array, array, float]:
+
+    state = array(state)
+    M0 = eye(2)
+
+    # generate projectors
+    projector0 = [1]
+    projector1 = [1]
+    for i in range(num_states):
+        if i == state_index:
+            projector0 = kron(projector0, M0)
+            projector1 = kron(projector1, M1)
+        else:
+            projector0 = kron(projector0, identity(2))
+            projector1 = kron(projector1, identity(2))
+
+    # probability of measuring basis[0]
+    prob_0 = (state.conj().transpose() @ projector0.conj().transpose() @ projector0 @ state).real
+
+    if prob_0 >= 1:
+        state1 = None
+    else:
+        state1 = (projector1 @ state) / sqrt(1 - prob_0)
+
+    if prob_0 <= 0:
+        state0 = None
+    else:
+        state0 = (projector0 @ state) / sqrt(prob_0)
+
+    return state0, state1, prob_0

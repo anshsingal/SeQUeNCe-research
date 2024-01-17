@@ -43,7 +43,7 @@ class Photon:
     _measure_circuit.measure(0)
 
     def __init__(self, name: str, timeline: "Timeline", wavelength=0, location=None, encoding_type=polarization,
-                 quantum_state=None, use_qm=False):
+                 quantum_state=None, use_qm=False, polarization_fidelity = False):
         """Constructor for the photon class.
 
         Args:
@@ -70,6 +70,8 @@ class Photon:
         self.is_null: bool = False
         self.loss: float = 0
         self.use_qm = use_qm
+        self.polarization_fidelity = polarization_fidelity
+        # self.pass_through = pass_through
 
         self.quantum_state: Union[State, int] = -1
         if self.use_qm:
@@ -89,6 +91,7 @@ class Photon:
                 assert num_qubits == 1, "Length of amplitudes for single photon should be 2"
             self.quantum_state = FreeQuantumState()
             self.quantum_state.state = quantum_state
+            self.quantum_state.polarization_fidelity = polarization_fidelity
 
     def __del__(self):
         if self.use_qm and self.timeline is not None:
@@ -114,17 +117,17 @@ class Photon:
 
         self.quantum_state.random_noise(rng)
 
-    def set_state(self, state):
-        print("use_qm:", self.use_qm)
+    def set_state(self, state, density_matrix = False):
+        # print("use_qm:", self.use_qm)
         if self.use_qm:
             qm = self.timeline.quantum_manager
             all_keys = qm.get(self.quantum_state).keys
             self.timeline.quantum_manager.set(all_keys, state)
         else:
-            self.quantum_state.set_state(state)
+            self.quantum_state.set_state(state, density_matrix)
 
     @staticmethod
-    def measure(basis, photon: "Photon", rng: "Generator"):
+    def measure(basis, photon: "Photon", rng: "Generator", return_prob = False):
         """Method to measure a photon (see `QuantumState` module).
 
         Args:
@@ -154,7 +157,7 @@ class Photon:
             return res[photon.quantum_state]
 
         else:
-            return photon.quantum_state.measure(basis, rng)
+            return photon.quantum_state.measure(basis, rng, return_prob)
 
     @staticmethod
     def measure_multiple(basis, photons: List["Photon"], rng: "Generator"):

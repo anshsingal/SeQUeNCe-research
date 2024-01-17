@@ -175,7 +175,7 @@ def plot_interference(phases, freq_0, st_dev_0, freq_1, st_dev_1, params_0, para
     plt.savefig(directory + f'interference_{power}.png')
     plt.show()
 
-directory = "results/final_data_L_CO_4PAM/"
+directory = "results/masters4/final_data_O_COUNTER_4PAM/"
 
 final_data_file = open(directory+"final_data.csv", 'w+')
 final_data = writer(final_data_file)

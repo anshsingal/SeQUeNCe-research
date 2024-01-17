@@ -121,9 +121,10 @@ class SPDCSource(LightSource):
     """
 
     def __init__(self, name, timeline, wavelengths=None, frequency=8e7, mean_photon_num=0.1,
-                 encoding_type=fock, phase_error=0, bandwidth=0):
+                 encoding_type=fock, phase_error=0, bandwidth=0, polarization_fidelity = 1):
         super().__init__(name, timeline, frequency, 0, bandwidth, mean_photon_num, encoding_type, phase_error)
         self.wavelengths = wavelengths
+        self.polarization_fidelity = polarization_fidelity
         # If the user uses a setting where both the photons have different wavelengths, you take the object 
         # from the user and use it directly. Otherwise, the direct method is to call set_wavelengths which sets 
         # both photons to have 1550nm wavelength. 
@@ -177,7 +178,7 @@ class SPDCSource(LightSource):
         log.logger.info("SPDC sourcee {} emitting {} photons".format(self.name, len(state_list)))
 
         time = self.timeline.now()
-        print("mpn:", self.mean_photon_num)
+        # print("mpn:", self.mean_photon_num)
 
         if self.encoding_type["name"] == "fock":
             # Use Fock encoding.
@@ -250,24 +251,33 @@ class SPDCSource(LightSource):
             for state in state_list:
                 num_photon_pairs = self.get_generator().poisson(
                 self.mean_photon_num)
+                entangled_state = (state[0], complex(0), complex(0), state[1])
+                density_state = np.outer(entangled_state, entangled_state)
 
                 if self.get_generator().random() < self.phase_error:
                     state = multiply([1, -1], state)
 
+                # num_photon_pairs = 1
+                # print("num_photon_pairs:", num_photon_pairs)
+
                 for _ in range(num_photon_pairs):
-                    new_photon0 = Photon("", self.timeline,
+                    signal_photon = Photon("signal", self.timeline,
                                          wavelength=self.wavelengths[0],
                                          location=self,
-                                         encoding_type=self.encoding_type)
-                    new_photon1 = Photon("", self.timeline,
+                                         encoding_type=self.encoding_type,
+                                         polarization_fidelity = self.polarization_fidelity)
+                    idler_photon = Photon("idler", self.timeline,
                                          wavelength=self.wavelengths[1],
                                          location=self,
-                                         encoding_type=self.encoding_type)
+                                         encoding_type=self.encoding_type,
+                                         polarization_fidelity = self.polarization_fidelity)
 
-                    new_photon0.combine_state(new_photon1)
-                    new_photon0.set_state((state[0], complex(0), complex(0), state[1]))
-                    self.send_photons(time, [new_photon0, new_photon1])
+                    signal_photon.combine_state(idler_photon)
+                    signal_photon.set_state(density_state, density_matrix = True)
+                    self.send_photons(time, [signal_photon, idler_photon])
                     self.photon_counter += 1
+                    time += 1
+                # print(num_photon_pairs, "photons were sent to ider and receiver nodes")
 
                 time += 1e12 / self.frequency
 
@@ -275,13 +285,19 @@ class SPDCSource(LightSource):
         log.logger.debug("SPDC source {} sending photons to {} at time {}".format(
             self.name, self._receivers, time
         ))
-
+        # print("sending photons at light source")
         assert len(photons) == 2
         for dst, photon in zip(self._receivers, photons):
+            # print("receiver:", dst.name)
+            # print("time:", int(round(time)))
+            # dst.get(photon)
             # print("memory destintions", self._receivers)
             process = Process(dst, "get", [photon])
             event = Event(int(round(time)), process)
+            # event = Event(0, process)
             self.timeline.schedule(event)
+        # for i in self.timeline.events:
+            # print(i.process.owner.name, "->", i.process.activation, "@", i.time)
 
     def set_wavelength(self, wavelength1=1550, wavelength2=1550):
         """Method to set the wavelengths of photons emitted in two output modes."""

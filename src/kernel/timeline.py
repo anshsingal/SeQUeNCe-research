@@ -157,6 +157,7 @@ class Timeline:
         self.events.update_event_time(event, time)
 
     def add_entity(self, entity: "Entity") -> None:
+        # print("entity name:", entity.name)
         assert entity.name not in self.entities
         entity.timeline = self
         self.entities[entity.name] = entity
