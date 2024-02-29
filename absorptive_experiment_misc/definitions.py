@@ -1,5 +1,6 @@
 from typing import Callable
 import numpy as np
+import random
 
 from src.kernel.timeline import Timeline
 from src.components.detector import QSDetectorFockDirect, QSDetectorFockInterference, Detector
@@ -357,7 +358,7 @@ class PolarizationDistributionNode(Node):
 
         self.spdc_name = name + ".spdc_source"
         spdc = SPDCSource(self.spdc_name, timeline, wavelengths=[params["QUANTUM_WAVELENGTH"], params["QUANTUM_WAVELENGTH"]],
-                          frequency=params["SPDC_FREQUENCY"], mean_photon_num=params["MEAN_PHOTON_NUM"], encoding_type=polarization)
+                          frequency=params["SPDC_FREQUENCY"], mean_photon_num=params["MEAN_PHOTON_NUM"], encoding_type=polarization, polarization_fidelity=params["POLARIZATION_FIDELITY"])
 
         self.add_component(spdc)
         spdc.add_receiver(self)
@@ -365,6 +366,9 @@ class PolarizationDistributionNode(Node):
     def start(self):
         states = [[1/np.sqrt(2),1/np.sqrt(2)]] * self.num_output
         self.components[self.spdc_name].emit(states)
+
+    def set_source_mpn(self, mpn):
+        self.components[self.spdc_name].mean_photon_num = mpn
 
     def get(self, photon: "Photon", **kwargs):
         # print("sending photons at node.")
@@ -401,6 +405,7 @@ class PolarizationReceiverNode(Node):
         self.first_component_name = self.name
 
         self.default_rng = np.random.default_rng()
+        self.second_rng = np.random.default_rng()
 
         self.two_qubit_basis =  (
                                     (complex(1), complex(0), complex(0), complex(0)),
@@ -418,12 +423,21 @@ class PolarizationReceiverNode(Node):
         self.temp_photon = None
         self.is_idler = None
         self.temp_photon_time = None
+        # self.singles_idler = 0
+        # self.singles_signal = 0
 
-        self.det_idler_singles_count = 0
-        self.det_signal_singles_count = 0
-        self.coincidence_count = 0
+        # self.det_idler_singles_count = 0
+        # self.det_signal_singles_count = 0
+        # self.coincidence_count = 0
+        # self.rejects_signal = 0
+        # self.rejects_idler = 0
 
         
+    def set_det_eff(self, eff):
+        self.signal_detector.efficiency = eff
+        self.idler_detector.efficiency = eff
+
+
 
     def rotateSignal(self, angle):
         self.signal_polarizer_angle = angle
@@ -448,47 +462,67 @@ class PolarizationReceiverNode(Node):
 
 
     def get(self, photon, is_idler = False):
-        # print("getting qubit")
         now = self.timeline.now()
-        if (now < self.signal_detector.next_detection_time) and (now < self.signal_detector.next_detection_time):
+        # print("getting qubit at", now)
+        if (now < self.signal_detector.next_detection_time) and (now < self.idler_detector.next_detection_time):
+            # print("both detectors blocked")
             return
+        
         if self.temp_photon == None: # This is the first photon you are receiving
             self.temp_photon = photon
-            self.original_state = self.temp_photon.quantum_state.state[:]
-            # if len(self.original_state) == 256:
+            self.original_state = self.temp_photon.quantum_state.state.copy()
             self.is_idler = is_idler
             self.temp_photon_time = now
-            # print("received one photon at", self.timeline.now(), "at idler?:", self.is_idler)
-        else:
+        else:  
+            # print("photons received at times:", now, self.temp_photon_time)          
+            # print("second state before loss:")
+            # print(self.temp_photon.quantum_state.state)
+            photon.apply_loss()
+            # print("incoming photons:")
+            # print(photon.quantum_state)
 
-            # print("temp received at:", self.temp_photon_time, "new received at:", self.timeline.now(), "condition:", self.temp_photon_time == self.timeline.now())
-            # print("received both photons at:", self.timeline.now())
+            # print(self.temp_photon.quantum_state)
+
+            # print("coincidence state")
+            # print(self.temp_photon.quantum_state.state)
+            # print(photon.quantum_state.state)
+            # print("rotating 2 qubits:")          
             self.two_qubit_polarizer.rotate({0:self.signal_polarizer_angle, 1:self.idler_polarizer_angle})
             self.two_qubit_polarizer.get(photon)
 
             states, probabilities = FreeQuantumState.measure_multiple(self.two_qubit_basis, [self.temp_photon.quantum_state, photon.quantum_state], self.default_rng, return_states=True)
+            # coincidence_prob = sum(probabilities)
             coincidence_prob = sum(probabilities)
 
+            # print("coincidence_prob:", coincidence_prob)
+
             if self.default_rng.random() < coincidence_prob:
+                # print("we have coincidence")
 #################                self.coincidence_count += 1
-                if np.random.rand() < self.signal_detector.efficiency:
+                if self.default_rng.random() < self.signal_detector.efficiency:
                     self.signal_detector.record_detection()
-                if np.random.rand() < self.idler_detector.efficiency:
+                if self.default_rng.random() < self.idler_detector.efficiency:
                     self.idler_detector.record_detection()
 
             else:
-                # print("too big state:", self.original_state)
-                # print("state before setting", self.temp_photon.quantum_state.state)
                 self.temp_photon.set_state(self.original_state, density_matrix = True)
-                # print("state being split:", self.original_state)
-                # print("state after setting", self.temp_photon.quantum_state.state)
-
-                # print("photons before splitting are:", self.temp_photon.quantum_state, photon.quantum_state)
-
+                # print("state after setting") 
+                # print(self.temp_photon.quantum_state.state)
                 self.temp_photon.quantum_state.split_states()
 
-                # print("photons are:", self.temp_photon.quantum_state, photon.quantum_state)
+                # print("state before sending to apply loss:")
+                # print(self.temp_photon.quantum_state.state)
+                # print(photon.quantum_state.state)
 
+                photon.apply_loss()
+                self.temp_photon.apply_loss()
+
+                # print("quantum states:", photon.quantum_state, self.temp_photon.quantum_state)
+
+                # print("state before sending to apply loss:")
+                # print(self.temp_photon.quantum_state.state)
+                # print(photon.quantum_state.state)
+                # print("single polarization rotation:")
                 if self.is_idler:
                     self.one_qubit_polarizer.rotate({0:self.signal_polarizer_angle})
                     self.one_qubit_polarizer.get(self.temp_photon)
@@ -506,30 +540,93 @@ class PolarizationReceiverNode(Node):
                     det_idler_max_singles_prob = Photon.measure(self.one_qubit_basis, photon, self.default_rng, return_prob = True)
                     det_signal_max_singles_prob = Photon.measure(self.one_qubit_basis, self.temp_photon, self.default_rng, return_prob = True)
 
+                # print("det_idler_max_singles_prob:", det_idler_max_singles_prob, "det_signal_max_singles_prob", det_signal_max_singles_prob)
+
                 det_idler_remaining_prob = np.real((det_idler_max_singles_prob-coincidence_prob)/(1-coincidence_prob))
                 det_signal_remaining_prob = np.real((det_signal_max_singles_prob-coincidence_prob)/(1-coincidence_prob))
-                # print("probabilities:", det_idler_remaining_prob, det_signal_remaining_prob)
-                single = np.random.choice([1,2,0], p = [det_idler_remaining_prob, det_signal_remaining_prob, 1-det_signal_remaining_prob-det_idler_remaining_prob])
-                if single == 1:
-                    if np.random.rand() < self.idler_detector.efficiency:
-                        self.idler_detector.record_detection()
-###################                    self.det_idler_singles_count += 1
-                elif single == 2:
-                    if np.random.rand() < self.signal_detector.efficiency:
+                # print("det_idler_remaining_prob", det_idler_remaining_prob, "det_signal_remaining_prob", det_signal_remaining_prob)
+                # print("det_signal_remaining_prob", det_signal_remaining_prob)
+                # print("det_signal_max_singles_prob", det_signal_max_singles_prob)
+                # print("coincidence_prob", coincidence_prob)
+                # print("det_idler_remaining_prob", det_idler_remaining_prob, "det_signal_remaining_prob", det_signal_remaining_prob)
+                # print()
+                # single = self.default_rng.choice([1,2,0], p = [det_idler_remaining_prob, det_signal_remaining_prob, 1-det_signal_remaining_prob-det_idler_remaining_prob])
+                # print("sample:", sample, "det_idler_remaining_prob", det_idler_remaining_prob, "det_signal_remaining_prob", det_signal_remaining_prob)
+
+                # if self.default_rng.random() < 0.3:
+                #     if now > self.idler_detector.next_detection_time:
+                #         self.idler_detector.record_detection()
+                #     else:
+                #         self.signal_detector.record_detection()
+
+                # print("det_idler_remaining_prob:", det_idler_remaining_prob, "det_signal_remaining_prob", det_signal_remaining_prob)
+
+                # self.default_rng = np.random.default_rng()
+                sample = self.default_rng.random()
+                # print("Initial:", sample, "at time:", now)
+
+                # print("self.idler_detector.temporal_coincidence_window", self.idler_detector.temporal_coincidence_window)
+                # print("self.signal_detector.temporal_coincidence_window", self.signal_detector.temporal_coincidence_window)
+                # print("self.idler_detector.dead_time", self.idler_detector.dead_time)
+                # print("self.signal_detector.dead_time", self.signal_detector.dead_time)
+                
+
+
+                
+                # print("idler_detector.next_detection_time", self.idler_detector.next_detection_time, "now:", now)
+                # print("signal_detector.next_detection_time", self.signal_detector.next_detection_time, "now:", now)
+
+                # if now < self.idler_detector.next_detection_time:
+                #     self.rejects_idler += 1
+                # self.idler_detector.record_detection()
+                # self.singles_idler += 1
+
+                # if now < self.signal_detector.next_detection_time:
+                #     self.rejects_signal += 1
+                # self.signal_detector.record_detection()
+                # self.singles_signal += 1
+
+
+
+
+                if sample > det_idler_remaining_prob and sample < (det_idler_remaining_prob+det_signal_remaining_prob):
+                    # new_sample = 
+                    # print("Signal:", new_sample)
+                    if self.default_rng.random() < self.signal_detector.efficiency:
+                        # print("detection success")
+                        # if now < self.signal_detector.next_detection_time:
+                        #     self.rejects_signal += 1
                         self.signal_detector.record_detection()
-###################                    self.det_signal_singles_count += 1
+                        # self.singles_signal += 1
+
+                elif sample < det_idler_remaining_prob:
+                    # new_sample = 
+                    # print("idler:", new_sample)
+                    if self.default_rng.random() < self.idler_detector.efficiency:
+                        # print("detection success")
+                        # if now < self.idler_detector.next_detection_time:
+                        #     self.rejects_idler += 1
+                        self.idler_detector.record_detection()
+                        # self.singles_idler += 1
+                else:
+                    print("problem!!!!!")
+
             self.temp_photon = None
             self.is_idler = None
             self.temp_photon_time = None
+            # print()
 
     def trigger(self, detector, info):
         self.detections[detector][-1].append(info["time"])
 
     def get_data(self):
         coincidences = []
+        coincidence_times = [] # only for debugging
         signal_detections = self.detections[self.signal_detector]
         idler_detections = self.detections[self.idler_detector]
         temporal_coincidence_window = self.temporal_coincidence_window
+        # print("len:", len(signal_detections[0]), "signal_detections:", signal_detections)
+        # print("len:", len(idler_detections[0]), "idler_detections", idler_detections)
         for signal, idler in zip(signal_detections, idler_detections):
             coincidence_count = 0
             idler_index = 0
@@ -540,10 +637,13 @@ class PolarizationReceiverNode(Node):
                     break
                 elif abs(i-idler[idler_index]) < temporal_coincidence_window:
                     coincidence_count += 1
+                    coincidence_times.append(idler[idler_index])
+                    coincidence_times.append(i)
             coincidences.append(coincidence_count)
 
         signal_singles = list(map(len, signal_detections))
         idler_singles = list(map(len, idler_detections))
+        # print("coincidences:", coincidence_times)
 
         return signal_singles, idler_singles, coincidences
 

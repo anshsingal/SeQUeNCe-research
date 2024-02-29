@@ -256,6 +256,7 @@ class FreeQuantumState(State):
         self.state = (complex(1), complex(0))
         self.entangled_states = [self]
         self.density_matrix = False
+        self.loss_val = 0
 
     def combine_state(self, another_state: "FreeQuantumState"):
         """Method to tensor multiply two quantum states.
@@ -312,8 +313,11 @@ class FreeQuantumState(State):
             tuple_state = tuple(map(tuple, input_state))
 
         index = self.entangled_states.index(self)
-
-        new_state = tuple(map(tuple, density_partial_trace(tuple_state, (index,), num_systems)))
+        # print("splitting state:", index)
+        # print(np.array(tuple_state))
+        new_state = density_partial_trace(tuple_state, (index,), num_systems)
+        # print("state after partial trace:yoyo")
+        # print(new_state)
 
         for i in all_indices[:index]+all_indices[index+1:]:
             self.entangled_states[i].state = new_state
@@ -321,11 +325,14 @@ class FreeQuantumState(State):
 
         self.entangled_states.remove(self)
         self.entangled_states = [self]
-        self.state = tuple(map(tuple, density_partial_trace(tuple_state, tuple(all_indices[:index]+all_indices[index+1:]), num_systems)))
-        # self.density_matrix = True
+        # self.state = tuple(map(tuple, density_partial_trace(tuple_state, tuple(all_indices[:index]+all_indices[index+1:]), num_systems)))
+        self.state = density_partial_trace(tuple_state, tuple(all_indices[:index]+all_indices[index+1:]), num_systems)
+        # print("after splittinh state:")
+        # print(self.state)
 
 
     def build_kraus_ops(self, dim):
+        # print("polarization fidelity:", self.polarization_fidelity)
         num_qubits = np.log2(dim)
         kraus_ops = [None]*4
         kraus_ops[0] = np.sqrt(1-3*self.polarization_fidelity/4) * np.array([[1,0], [0,1]])
@@ -349,14 +356,42 @@ class FreeQuantumState(State):
             dim = len(self.state)
             kraus_ops = self.build_kraus_ops(dim)
             final_state = 0
+            # print("kraus op:")
+            # print(kraus_ops)
             for kraus_op1 in kraus_ops:
                 for kraus_op2 in kraus_ops:
                     kraus_op = np.kron(kraus_op1, kraus_op2)
                     final_state += kraus_op @ self.state @ kraus_op.conj()
+                    # print("intermediate final state:")
+                    # print(kraus_op @ self.state @ kraus_op.conj())
             self.state = final_state
         else:
             angle = rng.random() * 2 * pi
             self.state = (complex(cos(angle)), complex(sin(angle)))
+
+
+    # def apply_loss_coeff(self):
+        # """Applies the loss on the quantum state. Presently only meant for the polarization encoded qubits.
+        # Losses on entangled states must be applied from each entangled quantum state individually. Each 
+        # entangled photon must call the apply_loss function of its quantum state.  
+
+        # """
+        # pass
+        # print("state before applying loss:")
+        # print(self.state)
+
+        # self.state = 0 * self.state
+        # return
+
+        # total_loss = 1
+
+        # for state in self.entangled_states:
+        #     total_loss *= (1-state.loss_val)
+
+        # for state in self.entangled_states:
+        #     state.state *= total_loss
+        # print("state after applying loss:", total_loss)
+        # print(self.state)
 
     # only for use with entangled state
     def set_state(self, state: Tuple[complex], density_matrix = False):

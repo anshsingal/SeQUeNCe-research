@@ -397,7 +397,7 @@ def measure_multiple_with_cache_fock_density(state: Tuple[Tuple[complex]], indic
     return state_list, prob_list
 
 
-@lru_cache(maxsize=1000)
+# @lru_cache(maxsize=1000)
 def density_partial_trace(state: Tuple[Tuple[complex]], indices: Tuple[int], num_systems: int, truncation: int = 1) \
         -> array:
 
@@ -414,7 +414,11 @@ def density_partial_trace(state: Tuple[Tuple[complex]], indices: Tuple[int], num
         array: output state with reduced number of subsystems `num_systems - len(indices)`.
     """
 
+
     temp = array(state)
+    # print("inside the desnity_partial_trace function")
+    # print(temp)
+
 
     for i, idx in enumerate(indices):
         offset = num_systems - i
@@ -426,34 +430,34 @@ def density_partial_trace(state: Tuple[Tuple[complex]], indices: Tuple[int], num
     return output_state
 
 
-@lru_cache(maxsize=1000)
-def measure_complete_polarization_entangled_state_with_cache(state: Tuple[complex], state_index: int, num_states: int) -> Tuple[array, array, float]:
+# @lru_cache(maxsize=1000)
+# def measure_complete_polarization_entangled_state_with_cache(state: Tuple[complex], state_index: int, num_states: int) -> Tuple[array, array, float]:
 
-    state = array(state)
-    M0 = eye(2)
+#     state = array(state)
+#     M0 = eye(2)
 
-    # generate projectors
-    projector0 = [1]
-    projector1 = [1]
-    for i in range(num_states):
-        if i == state_index:
-            projector0 = kron(projector0, M0)
-            projector1 = kron(projector1, M1)
-        else:
-            projector0 = kron(projector0, identity(2))
-            projector1 = kron(projector1, identity(2))
+#     # generate projectors
+#     projector0 = [1]
+#     projector1 = [1]
+#     for i in range(num_states):
+#         if i == state_index:
+#             projector0 = kron(projector0, M0)
+#             projector1 = kron(projector1, M1)
+#         else:
+#             projector0 = kron(projector0, identity(2))
+#             projector1 = kron(projector1, identity(2))
 
-    # probability of measuring basis[0]
-    prob_0 = (state.conj().transpose() @ projector0.conj().transpose() @ projector0 @ state).real
+#     # probability of measuring basis[0]
+#     prob_0 = (state.conj().transpose() @ projector0.conj().transpose() @ projector0 @ state).real
 
-    if prob_0 >= 1:
-        state1 = None
-    else:
-        state1 = (projector1 @ state) / sqrt(1 - prob_0)
+#     if prob_0 >= 1:
+#         state1 = None
+#     else:
+#         state1 = (projector1 @ state) / sqrt(1 - prob_0)
 
-    if prob_0 <= 0:
-        state0 = None
-    else:
-        state0 = (projector0 @ state) / sqrt(prob_0)
+#     if prob_0 <= 0:
+#         state0 = None
+#     else:
+#         state0 = (projector0 @ state) / sqrt(prob_0)
 
-    return state0, state1, prob_0
+#     return state0, state1, prob_0

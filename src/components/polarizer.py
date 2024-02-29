@@ -39,6 +39,15 @@ class Polarizer(Entity):
             else:
                 self.projector = np.kron(self.projector, self.identity)
         # self.projector = tuple(map(tuple, self.projector)) 
+        # print("projector:")
+        # print(self.projector)
+        # print("rx:")
+        # for i in new_angles_dict.keys():
+        #     print()
+        #     print(self.rx(new_angles_dict[i]))
+            
+        # print(self.rx(new_angles_dict[1]))
+
 
 
     def get(self, photon, **kwargs):

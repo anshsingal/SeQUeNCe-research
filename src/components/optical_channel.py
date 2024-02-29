@@ -345,7 +345,7 @@ class QuantumChannel(OpticalChannel):
     def init(self) -> None:
         """Implementation of Entity interface (see base class)."""
         self.delay = round(self.distance*1000 / (self.light_speed))
-        self.loss = 1 - 10 ** (self.distance * self.attenuation / -10)
+        self.loss = 1 - 10 ** (self.distance * self.attenuation / -10) # We expect to get the attenuation in terms of dB/km
 
     def set_ends(self, sender: "Node", receiver: str) -> None:
         """Method to set endpoints for the quantum channel.
@@ -412,8 +412,12 @@ class QuantumChannel(OpticalChannel):
             self.timeline.schedule(event)
 
         elif self.density_matrix_tacking and (qubit.encoding_type["name"] == "polarization"):
-            # qubit.add_loss(self.loss)
+            qubit.add_loss(self.loss)
+            # print("state before noise:")
+            # print(qubit.quantum_state.state)
             qubit.random_noise(self.get_generator())
+            # print("state after noise:")
+            # print(qubit.quantum_state.state)
             future_time = self.timeline.now() + self.delay
             process = Process(self.receiver, "receive_qubit", [source.name, qubit])
             event = Event(future_time, process)

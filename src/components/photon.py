@@ -71,6 +71,7 @@ class Photon:
         self.loss: float = 0
         self.use_qm = use_qm
         self.polarization_fidelity = polarization_fidelity
+        # print("polarizzation fiedlity:", polarization_fidelity)
         # self.pass_through = pass_through
 
         self.quantum_state: Union[State, int] = -1
@@ -181,6 +182,24 @@ class Photon:
                                                  rng)
 
     def add_loss(self, loss: float):
+        # Modified to also work with polarization encoding scheme. 
         assert 0 <= loss <= 1
+
+        if self.encoding_type["name"] == "polarization":
+            self.quantum_state.loss_val = 1 - (1 - self.quantum_state.loss_val) * (1 - loss)
+            return 
+        
         assert self.encoding_type["name"] == "single_atom"
-        self.loss = 1 - (1 - self.loss) * (1 - loss)
+        self.loss = 1 - (1 - self.loss) * (1 - loss) # Convert loss to transmissivity. Apply loss to transmissivity 
+                                                     # Convert back to loss
+        
+
+    def apply_loss(self):
+        # return
+        total_loss = 1
+
+        for qstate in self.quantum_state.entangled_states:
+            total_loss *= (1-qstate.loss_val)
+
+        for qstate in self.quantum_state.entangled_states:
+            qstate.state *= total_loss
